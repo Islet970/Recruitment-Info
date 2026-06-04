@@ -24,6 +24,7 @@ class JobPosition(Base):
     category_id: Mapped[int | None] = mapped_column(ForeignKey("job_categories.id", ondelete="SET NULL"), nullable=True, index=True)
     recruit_type: Mapped[RecruitType] = mapped_column(SAEnum(RecruitType), nullable=False, index=True)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    location: Mapped[str | None] = mapped_column(String(500), nullable=True)
     salary_text: Mapped[str | None] = mapped_column(String(100), nullable=True)
     salary_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
     salary_min: Mapped[float] = mapped_column(DECIMAL(10, 2), default=0)

@@ -7,7 +7,7 @@ from app.core.deps import get_current_user
 from app.models.user import User
 from app.models.company import Company
 from app.models.position import JobPosition
-from app.schemas import CompanyResponse, PaginatedResponse
+from app.schemas import CompanyDetail, CompanyResponse, PaginatedResponse, PositionBriefForCompany
 
 router = APIRouter()
 
@@ -17,6 +17,7 @@ def list_companies(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     scale: str = "",
+    industry: str = "",
     search: str = "",
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
@@ -25,6 +26,8 @@ def list_companies(
 
     if scale:
         query = query.where(Company.scale == scale)
+    if industry:
+        query = query.where(Company.industry.like(f"%{industry}%"))
     if search:
         query = query.where(Company.name.like(f"%{search}%"))
 
@@ -72,6 +75,24 @@ def list_scales(db: Session = Depends(get_db), _: User = Depends(get_current_use
     return [row[0] for row in result.fetchall()]
 
 
+@router.get("/industries")
+def list_industries(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    result = db.execute(
+        select(Company.industry)
+        .where(Company.industry.isnot(None), Company.industry != "")
+        .distinct()
+    )
+    industries = []
+    for row in result.fetchall():
+        val = row[0]
+        if val:
+            for part in val.split("，"):
+                part = part.strip()
+                if part and part not in industries:
+                    industries.append(part)
+    return sorted(industries)
+
+
 @router.get("/{company_id}")
 def get_company(
     company_id: int,
@@ -83,11 +104,34 @@ def get_company(
     if not c:
         raise HTTPException(status_code=404, detail="Company not found")
 
-    pos_count = db.execute(
-        select(func.count()).select_from(select(JobPosition).where(JobPosition.company_id == company_id).subquery())
-    ).scalar()
+    positions_result = db.execute(
+        select(JobPosition)
+        .where(JobPosition.company_id == company_id, JobPosition.is_active == True)
+        .order_by(JobPosition.publish_time.desc())
+        .limit(50)
+    )
+    positions = positions_result.scalars().all()
 
-    return CompanyResponse(
+    pos_list = [
+        PositionBriefForCompany(
+            id=p.id,
+            name=p.name,
+            recruit_type=p.recruit_type.value if hasattr(p.recruit_type, 'value') else p.recruit_type,
+            city=p.city,
+            location=p.location,
+            salary_text=p.salary_text,
+            salary_type=p.salary_type,
+            salary_min=float(p.salary_min),
+            salary_max=float(p.salary_max),
+            education_required=p.education_required,
+            experience_required=p.experience_required,
+            tags=p.tags,
+            publish_time=p.publish_time,
+        )
+        for p in positions
+    ]
+
+    return CompanyDetail(
         id=c.id,
         name=c.name,
         short_name=c.short_name,
@@ -99,5 +143,6 @@ def get_company(
         website=c.website,
         description=c.description,
         benefits=c.benefits,
-        position_count=pos_count,
+        position_count=len(pos_list),
+        positions=[p.model_dump() for p in pos_list],
     ).model_dump()

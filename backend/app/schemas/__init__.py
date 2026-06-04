@@ -50,61 +50,8 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
-# --- Position ---
-class CompanyBrief(BaseModel):
-    id: int
-    name: str
-    short_name: str | None = None
-    scale: str | None = None
-    industry: str | None = None
-    logo_url: str | None = None
-
-    class Config:
-        from_attributes = True
-
-
-class PositionResponse(BaseModel):
-    id: int
-    name: str
-    recruit_type: str
-    city: str | None = None
-    salary_text: str | None = None
-    salary_type: str | None = None
-    salary_min: float = 0
-    salary_max: float = 0
-    education_required: str | None = None
-    experience_required: str | None = None
-    tags: str | None = None
-    publish_time: datetime | None = None
-    company: CompanyBrief | None = None
-    category_name: str | None = None
-
-    class Config:
-        from_attributes = True
-
-
-class PositionDetail(PositionResponse):
-    url: str | None = None
-    responsibility: str | None = None
-    requirement: str | None = None
-    bonus: str | None = None
-    source: str | None = None
-    skills: list[str] = []
-
-    class Config:
-        from_attributes = True
-
-
-class PaginatedResponse(BaseModel):
-    items: list[Any]
-    total: int
-    page: int
-    page_size: int
-    total_pages: int
-
-
 # --- Company ---
-class CompanyResponse(BaseModel):
+class CompanyBrief(BaseModel):
     id: int
     name: str
     short_name: str | None = None
@@ -120,6 +67,79 @@ class CompanyResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class CompanyResponse(CompanyBrief):
+    pass
+
+
+class PositionBriefForCompany(BaseModel):
+    id: int
+    name: str
+    recruit_type: str
+    city: str | None = None
+    location: str | None = None
+    salary_text: str | None = None
+    salary_type: str | None = None
+    salary_min: float = 0
+    salary_max: float = 0
+    education_required: str | None = None
+    experience_required: str | None = None
+    tags: str | None = None
+    publish_time: datetime | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class CompanyDetail(CompanyBrief):
+    positions: list[PositionBriefForCompany] = []
+
+
+# --- Position ---
+class PositionBrief(BaseModel):
+    id: int
+    name: str
+    recruit_type: str
+    city: str | None = None
+    location: str | None = None
+    salary_text: str | None = None
+    salary_type: str | None = None
+    salary_min: float = 0
+    salary_max: float = 0
+    education_required: str | None = None
+    experience_required: str | None = None
+    tags: str | None = None
+    publish_time: datetime | None = None
+    company: CompanyBrief | None = None
+    category_name: str | None = None
+
+    class Config:
+        from_attributes = True
+
+
+class PositionDetail(PositionBrief):
+    url: str | None = None
+    responsibility: str | None = None
+    requirement: str | None = None
+    bonus: str | None = None
+    source: str | None = None
+    skills: list[str] = []
+
+    class Config:
+        from_attributes = True
+
+
+class PositionResponse(PositionBrief):
+    pass
+
+
+class PaginatedResponse(BaseModel):
+    items: list[Any]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
 
 
 # --- Dashboard ---
@@ -216,6 +236,6 @@ class CareerPath(BaseModel):
 
 
 class RecommendedPosition(BaseModel):
-    position: PositionResponse
+    position: PositionBrief
     match_score: float
     match_reasons: list[str]

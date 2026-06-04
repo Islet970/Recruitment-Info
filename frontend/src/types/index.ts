@@ -13,11 +13,47 @@ export interface TokenResponse {
   token_type: string;
 }
 
+export interface CompanyBrief {
+  id: number;
+  name: string;
+  short_name: string | null;
+  scale: string | null;
+  financing_stage: string | null;
+  industry: string | null;
+  address: string | null;
+  logo_url: string | null;
+  website: string | null;
+  description: string | null;
+  benefits: string | null;
+  position_count: number;
+}
+
+export interface PositionBriefForCompany {
+  id: number;
+  name: string;
+  recruit_type: string;
+  city: string | null;
+  location: string | null;
+  salary_text: string | null;
+  salary_type: string | null;
+  salary_min: number;
+  salary_max: number;
+  education_required: string | null;
+  experience_required: string | null;
+  tags: string | null;
+  publish_time: string | null;
+}
+
+export interface CompanyDetail extends CompanyBrief {
+  positions: PositionBriefForCompany[];
+}
+
 export interface PositionBrief {
   id: number;
   name: string;
   recruit_type: string;
   city: string | null;
+  location: string | null;
   salary_text: string | null;
   salary_type: string | null;
   salary_min: number;
@@ -37,15 +73,6 @@ export interface PositionDetail extends PositionBrief {
   bonus: string | null;
   source: string | null;
   skills: string[];
-}
-
-export interface CompanyBrief {
-  id: number;
-  name: string;
-  short_name: string | null;
-  scale: string | null;
-  industry: string | null;
-  logo_url: string | null;
 }
 
 export interface PaginatedResponse<T> {
