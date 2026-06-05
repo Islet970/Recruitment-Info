@@ -124,12 +124,37 @@ export default function DashboardPage() {
 
   const categoryOption = {
     ...chartBase,
-    tooltip: { trigger: "item", formatter: "{b}: {c} ({d}%)" },
+    tooltip: { trigger: "item", formatter: "{b}: {c} 个 ({d}%)" },
+    legend: {
+      type: "scroll",
+      orient: "vertical",
+      right: 10,
+      top: 10,
+      bottom: 10,
+      textStyle: { color: "#8899b4", fontSize: 11 },
+      pageTextStyle: { color: "#8899b4" },
+    },
     series: [{
-      type: "pie", radius: ["40%", "70%"], center: ["50%", "50%"],
-      data: categoryDist?.map(c => ({ name: c.name, value: c.value })) || [],
-      itemStyle: { borderRadius: 4, borderColor: "#0a0e17", borderWidth: 3 },
-      label: { color: "#8899b4", fontSize: 10 },
+      type: "pie", radius: ["35%", "65%"], center: ["30%", "50%"],
+      data: (categoryDist || []).map(c => ({ name: c.name, value: c.value })),
+      itemStyle: { borderRadius: 4, borderColor: "#0a0e17", borderWidth: 2 },
+      label: {
+        color: "#c8d0e0", fontSize: 10,
+        formatter: (p: any) => {
+          const total = (categoryDist || []).reduce((s, c) => s + c.value, 0);
+          return total > 0 ? `${p.percent?.toFixed(1) || 0}%` : "";
+        },
+      },
+      labelLine: { length: 8, length2: 6, smooth: true },
+      color: [
+        "#6366f1", "#06b6d4", "#8b5cf6", "#22d3ee", "#a78bfa",
+        "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#14b8a6",
+        "#f97316", "#84cc16", "#e11d48", "#64748b", "#38bdf8",
+        "#818cf8", "#34d399",
+      ],
+      emphasis: {
+        itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: "rgba(0,0,0,0.5)" },
+      },
     }]
   };
 
