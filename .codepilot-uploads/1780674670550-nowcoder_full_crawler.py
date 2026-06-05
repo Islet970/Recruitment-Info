@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-牛客网杭州地区计算机岗位招聘信息爬虫
-====================================
+牛客网杭州地区计算机岗位招聘信息爬虫 + 数据库导入
+=====================================================
 技术栈覆盖:
   (1) requests       — 直接 HTTP 请求获取岗位列表 JSON + 公司详情 JSON
   (2) Playwright     — 浏览器自动化，打开公司页面获取公司介绍
   (3) BeautifulSoup  — 解析公司页面 HTML
   (4) 正则表达式     — 文本清洗、HTML 标签剥离
   (5) JSON           — 数据保存
+  (6) 数据库导入     — 爬取结果写入 SQLite
 
 爬取: 28 种计算机岗位 × 校招/实习/社招
-输出: output/{校招,实习,社招}岗位.json
+输出: output/{校招,实习,社招}岗位.json + 导入数据库
 """
 
 import asyncio
@@ -46,6 +47,7 @@ RECRUIT_TYPES = [
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+BACKEND_DIR = os.path.join(BASE_DIR, "backend")
 
 LIST_API = "https://www.nowcoder.com/np-api/u/job/square-search"
 COMPANY_API = "https://www.nowcoder.com/np-api/u/company/detail"
@@ -353,6 +355,172 @@ def save_json(jobs, filepath):
     print(f"  [JSON] {os.path.basename(filepath)} ({kb:.1f} KB, {len(jobs)} 条)")
 
 
+# ==================== (6) 数据库导入 ====================
+
+def import_to_database():
+    """
+    将 output/ 下的 JSON 文件导入 SQLite 数据库。
+    复用 backend 的数据模型。
+    """
+    print("\n" + "=" * 70)
+    print("  导入数据库...")
+    print("=" * 70)
+
+    # 设置路径以导入 backend 模块
+    backend_src = os.path.join(BACKEND_DIR, "app")
+    if not os.path.isdir(backend_src):
+        print("  [数据库] backend/app/ 不存在，跳过导入")
+        return
+    sys.path.insert(0, BACKEND_DIR)
+
+    try:
+        import asyncio as aio
+        from sqlalchemy import create_engine, text
+        from sqlalchemy.orm import Session
+
+        # 使用同步引擎连接数据库
+        db_path = os.path.join(BACKEND_DIR, "data", "jobs.db")
+        if not os.path.exists(db_path):
+            print(f"  [数据库] {db_path} 不存在，创建中...")
+        engine = create_engine(f"sqlite:///{db_path}", echo=False)
+
+        # 创建表
+        from app.database import Base as AppBase
+        from app.models import JobCategory, Company, JobPosition, Skill, JobSkillRel
+        AppBase.metadata.create_all(engine)
+
+        session = Session(engine)
+
+        # 获取已有的 origin_id 集合（用于去重）
+        existing_ids = set(
+            row[0] for row in
+            session.execute(text("SELECT origin_id FROM job_position WHERE origin_id IS NOT NULL"))
+            if row[0]
+        )
+        print(f"  [数据库] 已有 {len(existing_ids)} 条岗位记录")
+
+        # 获取分类映射
+        cat_map = {c.name: c.id for c in session.query(JobCategory).all()}
+        stats = {"created": 0, "skipped": 0, "companies": 0}
+
+        # 遍历所有 JSON 文件
+        for fname in sorted(os.listdir(OUTPUT_DIR)):
+            if not fname.endswith(".json"):
+                continue
+            fpath = os.path.join(OUTPUT_DIR, fname)
+            with open(fpath, "r", encoding="utf-8") as f:
+                jobs = json.load(f)
+
+            if not jobs:
+                continue
+
+            recruit_type = fname.replace("岗位.json", "").replace(".json", "")
+            print(f"\n  [{recruit_type}] {len(jobs)} 条待导入")
+
+            for item in jobs:
+                origin_id = str(item.get("岗位ID", ""))
+                if not origin_id or origin_id in existing_ids:
+                    stats["skipped"] += 1
+                    continue
+
+                # 公司
+                company_id = None
+                company_name = item.get("公司名称", "").strip()
+                if company_name:
+                    company = session.query(Company).filter(Company.name == company_name).first()
+                    if not company:
+                        company = Company(
+                            origin_id=str(item.get("公司ID", "")),
+                            name=company_name,
+                            short_name=item.get("公司简称", ""),
+                            scale=item.get("公司规模", ""),
+                            financing_stage=item.get("融资阶段", ""),
+                            industry=item.get("所属行业", ""),
+                            address=item.get("公司地址", ""),
+                            logo_url=item.get("公司Logo", ""),
+                            website=item.get("公司官网", ""),
+                            description=item.get("公司介绍", ""),
+                        )
+                        session.add(company)
+                        session.flush()
+                        stats["companies"] += 1
+                    company_id = company.id
+
+                # 岗位分类
+                category_id = None
+                name = item.get("岗位名称", "")
+                for pattern, cat in [
+                    (r"后端|Java|Go|Python.*开发|云服务|微服务", "后端开发"),
+                    (r"前端|Vue|React|Web前端|H5", "前端开发"),
+                    (r"AI|人工智能|算法|机器学习|深度学习|大模型|LLM", "人工智能"),
+                    (r"测试|测开|QA|质量保障", "测试开发"),
+                    (r"运维|SRE|DevOps", "运维开发"),
+                    (r"安全|网络安全|信息安全", "安全"),
+                    (r"数据", "数据开发"),
+                    (r"产品", "产品类"),
+                ]:
+                    if re.search(pattern, name, re.IGNORECASE):
+                        category_id = cat_map.get(cat)
+                        break
+
+                # 时间
+                publish_time = None
+                try:
+                    pt = item.get("发布时间", "")
+                    if pt:
+                        publish_time = datetime.strptime(pt, "%Y-%m-%d %H:%M")
+                except ValueError:
+                    pass
+
+                # 创建岗位
+                job = JobPosition(
+                    origin_id=origin_id,
+                    name=name,
+                    url=item.get("岗位链接", ""),
+                    company_id=company_id,
+                    category_id=category_id,
+                    city=item.get("工作城市", ""),
+                    location=item.get("工作地址", ""),
+                    salary_text=item.get("薪资", ""),
+                    salary_type=item.get("薪资类型", ""),
+                    salary_min=item.get("薪资下限", 0),
+                    salary_max=item.get("薪资上限", 0),
+                    salary_month=item.get("薪资月数", 0),
+                    education_required=item.get("学历要求", ""),
+                    tags=item.get("岗位标签", ""),
+                    responsibility=item.get("岗位职责", ""),
+                    requirement=item.get("岗位要求", ""),
+                    bonus=item.get("加分项", ""),
+                    publish_time=publish_time,
+                    source="牛客网",
+                    recruit_type=recruit_type,
+                )
+                session.add(job)
+                existing_ids.add(origin_id)
+                stats["created"] += 1
+
+                if stats["created"] % 20 == 0:
+                    session.commit()
+
+            session.commit()
+
+        session.close()
+        engine.dispose()
+
+        print(f"\n  [数据库] 导入完成!")
+        print(f"    新增岗位: {stats['created']}")
+        print(f"    跳过(已存在): {stats['skipped']}")
+        print(f"    新增公司: {stats['companies']}")
+
+    except ImportError as e:
+        print(f"  [数据库] 导入失败(缺少依赖): {e}")
+        print(f"  请先安装: pip install sqlalchemy aiosqlite")
+    except Exception as e:
+        print(f"  [数据库] 导入出错: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 # ==================== 统计 ====================
 
 def print_summary(all_results):
@@ -444,6 +612,9 @@ async def main():
 
     print_summary(all_results)
     print(f"\n✅ 爬取完成! JSON 文件保存在: {OUTPUT_DIR}")
+
+    # 导入数据库
+    import_to_database()
 
 
 if __name__ == "__main__":
