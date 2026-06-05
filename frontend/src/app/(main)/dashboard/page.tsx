@@ -9,7 +9,7 @@ import { CanvasRenderer } from "echarts/renderers";
 import { LineChart, PieChart, BarChart, ScatterChart } from "echarts/charts";
 import {
   TitleComponent, TooltipComponent, LegendComponent, GridComponent,
-  ToolboxComponent
+  ToolboxComponent, DataZoomComponent
 } from "echarts/components";
 import type {
   DashboardSummary, TrendPoint, CategoryDistribution, EducationDistribution,
@@ -18,7 +18,7 @@ import type {
 import { LayoutDashboard, GraduationCap, Building2, Briefcase } from "lucide-react";
 
 echarts.use([CanvasRenderer, LineChart, PieChart, BarChart, ScatterChart,
-  TitleComponent, TooltipComponent, LegendComponent, GridComponent, ToolboxComponent]);
+  TitleComponent, TooltipComponent, LegendComponent, GridComponent, ToolboxComponent, DataZoomComponent]);
 
 type TabType = "all" | "campus" | "social" | "intern";
 const tabs: { key: TabType; label: string }[] = [
@@ -35,7 +35,8 @@ const chartBase = {
 
 export default function DashboardPage() {
   const [tab, setTab] = useState<TabType>("all");
-  const [salaryPeriod, setSalaryPeriod] = useState<"monthly" | "daily">("monthly");
+  const salaryPeriod = tab === "intern" ? "daily" : "monthly";
+  const [salaryField, setSalaryField] = useState<"min" | "max">("min");
   const [topGroupBy, setTopGroupBy] = useState<"category" | "skill">("category");
   const [showSkillDetail, setShowSkillDetail] = useState(false);
 
@@ -65,8 +66,8 @@ export default function DashboardPage() {
   });
 
   const { data: salaryDist } = useQuery<SalaryBucket[]>({
-    queryKey: ["dashboard-salary", tab, salaryPeriod],
-    queryFn: async () => (await api.get("/dashboard/salary-distribution", { params: { type: tab, period: salaryPeriod } })).data,
+    queryKey: ["dashboard-salary", tab, salaryPeriod, salaryField],
+    queryFn: async () => (await api.get("/dashboard/salary-distribution", { params: { type: tab, period: salaryPeriod, field: salaryField } })).data,
     enabled: tab !== "all",
   });
 
@@ -77,20 +78,20 @@ export default function DashboardPage() {
   });
 
   const { data: eduVsSalary } = useQuery<BoxPlotData[]>({
-    queryKey: ["dashboard-edu-salary", tab],
-    queryFn: async () => (await api.get("/dashboard/education-vs-salary", { params: { type: tab } })).data,
+    queryKey: ["dashboard-edu-salary", tab, salaryPeriod],
+    queryFn: async () => (await api.get("/dashboard/education-vs-salary", { params: { type: tab, period: salaryPeriod } })).data,
     enabled: tab !== "all",
   });
 
   const { data: expVsSalary } = useQuery<BoxPlotData[]>({
-    queryKey: ["dashboard-exp-salary", tab],
-    queryFn: async () => (await api.get("/dashboard/experience-vs-salary", { params: { type: tab } })).data,
+    queryKey: ["dashboard-exp-salary", tab, salaryPeriod],
+    queryFn: async () => (await api.get("/dashboard/experience-vs-salary", { params: { type: tab, period: salaryPeriod } })).data,
     enabled: tab !== "all",
   });
 
   const { data: topPaying } = useQuery<{ name: string; salary_avg: number }[]>({
-    queryKey: ["dashboard-top", tab, topGroupBy],
-    queryFn: async () => (await api.get("/dashboard/top-paying", { params: { type: tab, group_by: topGroupBy, limit: 10 } })).data,
+    queryKey: ["dashboard-top", tab, topGroupBy, salaryPeriod],
+    queryFn: async () => (await api.get("/dashboard/top-paying", { params: { type: tab, group_by: topGroupBy, period: salaryPeriod, limit: 10 } })).data,
     enabled: tab !== "all",
   });
 
@@ -200,10 +201,18 @@ export default function DashboardPage() {
     }]
   };
 
+  const salaryFieldLabel = salaryField === "min" ? "最低薪资" : "最高薪资";
+
   const salaryOption = {
     ...chartBase,
-    tooltip: { trigger: "axis" },
-    grid: { left: 50, right: 16, top: 10, bottom: 24 },
+    tooltip: {
+      trigger: "axis",
+      formatter: (params: any) => {
+        const p = Array.isArray(params) ? params[0] : params;
+        return `${p.name}<br/>${salaryFieldLabel}: ${p.value} 个岗位`;
+      },
+    },
+    grid: { left: 50, right: 16, top: 10, bottom: 60 },
     xAxis: { type: "category", data: salaryDist?.map(s => s.range) || [], axisLabel: { color: "#8899b4", fontSize: 10, rotate: 45 } },
     yAxis: { type: "value", name: "岗位数", axisLabel: { color: "#8899b4", fontSize: 10 } },
     series: [{
@@ -215,10 +224,23 @@ export default function DashboardPage() {
 
   const boxOption = (data: BoxPlotData[] | undefined, title: string) => ({
     ...chartBase,
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
-    grid: { left: 50, right: 16, top: 10, bottom: 24 },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params: any) => {
+        const items = Array.isArray(params) ? params : [params];
+        const name = items[0]?.axisValue || "";
+        const vals = items.map((p: any) => `${p.marker} ${p.seriesName}: ${p.value}${salaryPeriod === "monthly" ? "k" : ""}`).join("<br/>");
+        return `${name}<br/>${vals}`;
+      },
+    },
+    grid: { left: 50, right: 16, top: 10, bottom: 60 },
+    dataZoom: (data && data.length > 6) ? [
+      { type: "slider", bottom: 8, height: 16, borderColor: "#333", backgroundColor: "#1a1f2e", fillerColor: "rgba(99,102,241,0.2)", textStyle: { color: "#8899b4", fontSize: 10 } },
+      { type: "inside" },
+    ] : [],
     xAxis: { type: "category", data: data?.map(d => d.name) || [], axisLabel: { color: "#8899b4", fontSize: 10 } },
-    yAxis: { type: "value", name: salaryPeriod === "monthly" ? "K/月" : "元/日", axisLabel: { color: "#8899b4", fontSize: 10 } },
+    yAxis: { type: "value", name: salaryPeriod === "monthly" ? "k/月" : "元/日", axisLabel: { color: "#8899b4", fontSize: 10 } },
     series: [
       {
         type: "bar", name: "最低", data: data?.map(d => d.min) || [],
@@ -237,9 +259,16 @@ export default function DashboardPage() {
 
   const topPayOption = {
     ...chartBase,
-    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: { type: "shadow" },
+      formatter: (params: any) => {
+        const p = Array.isArray(params) ? params[0] : params;
+        return `${p.name}<br/>平均薪资: ${p.value}${salaryPeriod === "monthly" ? "k/月" : "元/日"}`;
+      },
+    },
     grid: { left: 100, right: 16, top: 10, bottom: 24 },
-    xAxis: { type: "value", name: "K/月", axisLabel: { color: "#8899b4", fontSize: 10 } },
+    xAxis: { type: "value", name: salaryPeriod === "monthly" ? "k/月" : "元/日", axisLabel: { color: "#8899b4", fontSize: 10 } },
     yAxis: { type: "category", data: [...(topPaying || [])].sort((a,b) => a.salary_avg - b.salary_avg).map(t => t.name.length > 10 ? t.name.slice(0,10)+"..." : t.name), axisLabel: { color: "#8899b4", fontSize: 10 }, inverse: true },
     series: [{
       type: "bar", data: [...(topPaying || [])].sort((a,b) => a.salary_avg - b.salary_avg).map(t => t.salary_avg),
@@ -380,28 +409,35 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between mb-4 mt-8">
             <h2 className="text-lg font-bold" style={{ color: "var(--color-primary-light)" }}>
               {tabs.find(t => t.key === tab)?.label} — 详细分析
+              <span className="ml-2 text-xs font-normal" style={{ color: "var(--color-text-dim)" }}>
+                ({salaryPeriod === "monthly" ? "月薪 · k/月" : "日薪 · 元/日"})
+              </span>
             </h2>
-            <div className="flex gap-2">
-              <button onClick={() => setSalaryPeriod("monthly")}
-                className="px-3 py-1.5 rounded text-xs transition-all"
-                style={{ background: salaryPeriod === "monthly" ? "var(--color-primary)" : "var(--color-surface2)", color: salaryPeriod === "monthly" ? "#fff" : "var(--color-text-dim)" }}>
-                月薪
-              </button>
-              <button onClick={() => setSalaryPeriod("daily")}
-                className="px-3 py-1.5 rounded text-xs transition-all"
-                style={{ background: salaryPeriod === "daily" ? "var(--color-primary)" : "var(--color-surface2)", color: salaryPeriod === "daily" ? "#fff" : "var(--color-text-dim)" }}>
-                日薪
-              </button>
-            </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
-            <ChartCard title="薪资分布">
-              <ReactEChartsCore echarts={echarts} option={salaryOption} style={{ height: 280 }} notMerge />
+            <ChartCard title={
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold">薪资分布</span>
+                <div className="flex gap-1">
+                  <button onClick={() => setSalaryField("min")}
+                    className="px-2 py-0.5 rounded text-xs transition-all"
+                    style={{ background: salaryField === "min" ? "var(--color-primary)" : "var(--color-surface2)", color: salaryField === "min" ? "#fff" : "var(--color-text-dim)" }}>
+                    最低薪资
+                  </button>
+                  <button onClick={() => setSalaryField("max")}
+                    className="px-2 py-0.5 rounded text-xs transition-all"
+                    style={{ background: salaryField === "max" ? "var(--color-primary)" : "var(--color-surface2)", color: salaryField === "max" ? "#fff" : "var(--color-text-dim)" }}>
+                    最高薪资
+                  </button>
+                </div>
+              </div>
+            }>
+              <ReactEChartsCore echarts={echarts} option={salaryOption} style={{ height: 300 }} notMerge />
             </ChartCard>
 
             <ChartCard title="各岗位类别薪资分布">
-              <ReactEChartsCore echarts={echarts} option={boxOption(salaryByCategory, "category")} style={{ height: 280 }} notMerge />
+              <ReactEChartsCore echarts={echarts} option={boxOption(salaryByCategory, "category")} style={{ height: 320 }} notMerge />
             </ChartCard>
 
             <ChartCard title="学历 & 薪资的关系">

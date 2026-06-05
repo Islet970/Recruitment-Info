@@ -21,11 +21,11 @@ router = APIRouter()
 
 def _recruit_filter(type_param: str, prefix: str = "jp.") -> str:
     if type_param == "campus":
-        return f"AND {prefix}recruit_type = '校招'"
+        return f"AND {prefix}recruit_type = 'CAMPUS'"
     elif type_param == "social":
-        return f"AND {prefix}recruit_type = '社招'"
+        return f"AND {prefix}recruit_type = 'SOCIAL'"
     elif type_param == "intern":
-        return f"AND {prefix}recruit_type = '实习'"
+        return f"AND {prefix}recruit_type = 'INTERN'"
     return ""
 
 
@@ -185,23 +185,52 @@ def get_skills_cloud(
     return [SkillCount(name=row[0], count=row[1]) for row in result.fetchall()]
 
 
+def _salary_value_sql(salary_col: str, period: str) -> str:
+    """Generate SQL expression to convert a salary column to the target unit.
+
+    - period='monthly': all values → k/月 (月薪/1000, 日薪*22/1000)
+    - period='daily':   all values → 元/日 (日薪 as-is, 月薪/22)
+    """
+    if period == "monthly":
+        return f"""
+            CASE
+                WHEN jp.salary_type = '日薪' THEN {salary_col} * 22 / 1000
+                ELSE {salary_col} / 1000
+            END
+        """
+    else:
+        return f"""
+            CASE
+                WHEN jp.salary_type = '日薪' THEN {salary_col}
+                ELSE {salary_col} / 22
+            END
+        """
+
+
 @router.get("/salary-distribution")
 def get_salary_distribution(
     type: str = "all",
     period: str = "monthly",
+    field: str = "min",
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    if field not in ("min", "max"):
+        field = "min"
     rf = _recruit_filter(type)
+    salary_col = f"jp.salary_{field}"
+    effective = _salary_value_sql(salary_col, period)
+
+    if period == "monthly":
+        bucket_size = 5
+        range_suffix = "k"
+    else:
+        bucket_size = 50
+        range_suffix = "元/日"
+
     query = text(f"""
         SELECT
-            FLOOR(
-                CASE
-                    WHEN jp.salary_type = '日薪' AND :period = 'monthly' THEN (jp.salary_min + jp.salary_max) / 2 * 22 / 1000
-                    WHEN :period = 'daily' AND jp.salary_type = '日薪' THEN (jp.salary_min + jp.salary_max) / 2
-                    ELSE (jp.salary_min + jp.salary_max) / 2
-                END
-            ) * 5 as bucket,
+            FLOOR(({effective}) / :bucket_size) * :bucket_size as bucket,
             COUNT(*) as cnt
         FROM job_positions jp
         WHERE jp.is_active = 1
@@ -211,8 +240,9 @@ def get_salary_distribution(
         GROUP BY bucket
         ORDER BY bucket ASC
     """)
-    result = db.execute(query, {"period": period})
-    return [SalaryBucket(range=f"{row[0]}-{row[0]+5}", count=row[1]) for row in result.fetchall()]
+    result = db.execute(query, {"bucket_size": bucket_size})
+    rows = result.fetchall()
+    return [SalaryBucket(range=f"{int(row[0])}-{int(row[0]) + bucket_size}{range_suffix}", count=row[1]) for row in rows]
 
 
 @router.get("/salary-by-category")
@@ -223,12 +253,15 @@ def get_salary_by_category(
     _: User = Depends(get_current_user),
 ):
     rf = _recruit_filter(type)
+    eff_min = _salary_value_sql("jp.salary_min", period)
+    eff_max = _salary_value_sql("jp.salary_max", period)
+    eff_avg = _salary_value_sql("(jp.salary_min + jp.salary_max) / 2", period)
     query = text(f"""
         SELECT
             jc.name,
-            MIN(jp.salary_min) as min_sal,
-            MAX(jp.salary_max) as max_sal,
-            AVG((jp.salary_min + jp.salary_max) / 2) as mean_sal
+            MIN({eff_min}) as min_sal,
+            MAX({eff_max}) as max_sal,
+            AVG({eff_avg}) as mean_sal
         FROM job_positions jp
         JOIN job_categories jc ON jp.category_id = jc.id
         WHERE jp.is_active = 1
@@ -251,6 +284,9 @@ def get_education_vs_salary(
     _: User = Depends(get_current_user),
 ):
     rf = _recruit_filter(type)
+    eff_min = _salary_value_sql("jp.salary_min", period)
+    eff_max = _salary_value_sql("jp.salary_max", period)
+    eff_avg = _salary_value_sql("(jp.salary_min + jp.salary_max) / 2", period)
     query = text(f"""
         SELECT
             CASE
@@ -260,9 +296,9 @@ def get_education_vs_salary(
                 WHEN jp.education_required LIKE '%大专%' THEN '大专'
                 ELSE '不限'
             END as edu_level,
-            MIN(jp.salary_min) as min_sal,
-            MAX(jp.salary_max) as max_sal,
-            AVG((jp.salary_min + jp.salary_max) / 2) as mean_sal
+            MIN({eff_min}) as min_sal,
+            MAX({eff_max}) as max_sal,
+            AVG({eff_avg}) as mean_sal
         FROM job_positions jp
         WHERE jp.is_active = 1
           AND jp.salary_min > 0
@@ -283,6 +319,9 @@ def get_experience_vs_salary(
     _: User = Depends(get_current_user),
 ):
     rf = _recruit_filter(type)
+    eff_min = _salary_value_sql("jp.salary_min", period)
+    eff_max = _salary_value_sql("jp.salary_max", period)
+    eff_avg = _salary_value_sql("(jp.salary_min + jp.salary_max) / 2", period)
     query = text(f"""
         SELECT
             CASE
@@ -292,9 +331,9 @@ def get_experience_vs_salary(
                 WHEN jp.experience_required LIKE '%1年%' OR jp.experience_required = '经验不限' THEN '1年经验'
                 ELSE '不限'
             END as exp_level,
-            MIN(jp.salary_min) as min_sal,
-            MAX(jp.salary_max) as max_sal,
-            AVG((jp.salary_min + jp.salary_max) / 2) as mean_sal
+            MIN({eff_min}) as min_sal,
+            MAX({eff_max}) as max_sal,
+            AVG({eff_avg}) as mean_sal
         FROM job_positions jp
         WHERE jp.is_active = 1
           AND jp.salary_min > 0
@@ -311,15 +350,17 @@ def get_experience_vs_salary(
 def get_top_paying(
     type: str = "all",
     group_by: str = "category",
+    period: str = "monthly",
     limit: int = 10,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     rf = _recruit_filter(type)
+    eff_avg = _salary_value_sql("(jp.salary_min + jp.salary_max) / 2", period)
 
     if group_by == "skill":
         query = text(f"""
-            SELECT s.name as group_name, MAX((jp.salary_min + jp.salary_max) / 2) as max_sal
+            SELECT s.name as group_name, MAX({eff_avg}) as max_sal
             FROM job_positions jp
             JOIN position_skills ps ON jp.id = ps.position_id
             JOIN skills s ON ps.skill_id = s.id
@@ -333,7 +374,7 @@ def get_top_paying(
         """)
     else:
         query = text(f"""
-            SELECT jc.name as group_name, MAX((jp.salary_min + jp.salary_max) / 2) as max_sal
+            SELECT jc.name as group_name, MAX({eff_avg}) as max_sal
             FROM job_positions jp
             JOIN job_categories jc ON jp.category_id = jc.id
             WHERE jp.is_active = 1
