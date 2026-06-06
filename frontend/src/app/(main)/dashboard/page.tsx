@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import ReactEChartsCore from "echarts-for-react/lib/core";
@@ -34,6 +35,7 @@ const chartBase = {
 };
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [tab, setTab] = useState<TabType>("all");
   const salaryPeriod = tab === "intern" ? "daily" : "monthly";
   const [salaryField, setSalaryField] = useState<"min" | "max">("min");
@@ -296,7 +298,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <div className="p-4 rounded-xl border cursor-pointer hover:scale-[1.02] transition-transform"
           style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
-          onClick={() => { setShowSkillDetail(false); }}>
+          onClick={() => router.push("/positions")}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "rgba(99,102,241,0.15)" }}>
               <Briefcase className="w-5 h-5" style={{ color: "var(--color-primary-light)" }} />
@@ -307,7 +309,11 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        <div className="p-4 rounded-xl border" style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}>
+        <div
+          className="p-4 rounded-xl border cursor-pointer hover:scale-[1.02] transition-transform"
+          style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
+          onClick={() => router.push("/companies")}
+        >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "rgba(6,182,212,0.15)" }}>
               <Building2 className="w-5 h-5" style={{ color: "var(--color-accent-light)" }} />
