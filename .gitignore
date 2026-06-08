@@ -3,9 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
-
+.idea/
 # pip缓存
-backend/pip/cache/
+backend/pip/
 # Python编译缓存
 __pycache__/
 *.pyc

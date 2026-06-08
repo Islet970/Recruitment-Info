@@ -93,13 +93,24 @@ def import_data():
                     if existing:
                         company_map[company_name] = existing.id
                     else:
-                        c = Company(name=company_name, address=item.get("公司地址"))
+                        c = Company(
+                            name=company_name,
+                            origin_id=str(item.get("公司ID") or ""),
+                            short_name=item.get("公司简称"),
+                            scale=item.get("公司规模"),
+                            financing_stage=item.get("融资阶段"),
+                            industry=item.get("所属行业"),
+                            address=item.get("公司地址"),
+                            logo_url=item.get("公司Logo"),
+                            website=item.get("公司网址"),
+                            description=item.get("公司介绍"),
+                        )
                         db.add(c)
                         db.flush()
                         company_map[company_name] = c.id
 
                 # Category
-                cat_name = (item.get("搜索关键字") or "其他").strip()
+                cat_name = (item.get("搜索关键词") or "其他").strip()
                 if cat_name not in category_map:
                     existing = db.query(JobCategory).filter(JobCategory.name == cat_name).first()
                     if existing:
@@ -112,13 +123,15 @@ def import_data():
 
                 # Position
                 smin, smax, stype, smonth = parse_salary(item)
-                publish_str = item.get("发布时间") or item.get("刷新时间")
-                publish_time = None
-                if publish_str:
-                    try:
-                        publish_time = datetime.strptime(publish_str.strip(), "%Y-%m-%d %H:%M")
-                    except ValueError:
-                        pass
+                def _parse_time(val):
+                    if val:
+                        try:
+                            return datetime.strptime(val.strip(), "%Y-%m-%d %H:%M")
+                        except (ValueError, AttributeError):
+                            pass
+                    return None
+                publish_time = _parse_time(item.get("发布时间"))
+                refresh_time = _parse_time(item.get("刷新时间")) or publish_time
 
                 pos = JobPosition(
                     origin_id=str(item.get("岗位ID", "")),
@@ -128,20 +141,21 @@ def import_data():
                     category_id=category_map[cat_name],
                     recruit_type=recruit_type,
                     city=item.get("工作城市"),
+                    location=item.get("工作地址"),
                     salary_text=item.get("薪资"),
                     salary_type=stype,
                     salary_min=smin,
                     salary_max=smax,
                     salary_month=smonth,
                     education_required=parse_education(item),
-                    graduation_year=item.get("毕业时间"),
+                    graduation_year=item.get("毕业年份"),
                     experience_required=parse_experience(item),
                     tags=item.get("岗位标签"),
                     responsibility=item.get("岗位职责"),
                     requirement=item.get("岗位要求"),
-                    bonus=item.get("岗位亮点"),
+                    bonus=item.get("加分项"),
                     publish_time=publish_time,
-                    refresh_time=publish_time,
+                    refresh_time=refresh_time,
                     source="牛客网",
                     is_active=True,
                 )
