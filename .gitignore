@@ -26,6 +26,10 @@ desktop.ini
 # C extensions
 *.so
 
+# Claude Code
+.claude/
+.codepilot-uploads/
+
 # Distribution / packaging
 .Python
 build/

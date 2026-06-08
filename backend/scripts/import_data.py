@@ -9,7 +9,7 @@ from app.models.category import JobCategory
 from app.models.skill import Skill
 from app.models.position import JobPosition, PositionSkill, RecruitType
 
-DATA_DIR = r"C:\Users\Voidkongbai\Desktop\Recruitment-Info\output"
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "output")
 
 def find_file(label):
     """Find data file matching Chinese label."""

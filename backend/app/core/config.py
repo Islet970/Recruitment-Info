@@ -1,3 +1,4 @@
+import os
 from pydantic_settings import BaseSettings
 
 
@@ -35,7 +36,7 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
 
     class Config:
-        env_file = ".env"
+        env_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".env")
 
 
 settings = Settings()
