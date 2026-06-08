@@ -57,22 +57,24 @@
 # 1. 创建 MySQL 数据库
 mysql -u root -p -e "CREATE DATABASE recruitment_platform CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
-# 2. 进入后端目录
-cd backend
-
-# 3. 配置环境变量
+# 2. 配置环境变量
 cp .env.example .env
 # 编辑 .env，修改 DB_PASSWORD 为自己的 MySQL 密码
 
-# 4. 安装依赖
-python -m venv venv
-source venv/bin/activate      # Linux/macOS
-# venv\Scripts\activate       # Windows
+# cd backend/app/core 修改config
+DB_PASSWORD: str = "在这里输入你的密码"
 
+# 3.导入数据cd backend/scripts
+python import_data.py
+python create_views.py
+python classify_positions.py
+
+# 4.安装依赖
 pip install -r requirements.txt
 
 # 5. 启动
-uvicorn app.main:app --reload
+cd backend
+uvicorn app.main:app --reload[ --host 0.0.0.0 --port 8000]
 # API 地址: http://localhost:8000
 # 文档:     http://localhost:8000/docs
 ```
@@ -102,4 +104,3 @@ python nowcoder_full_crawler.py
 - **公司百科**: 查看公司详细介绍、在招职位
 - **简历管理**: 上传简历、AI 分析匹配度
 - **智能推荐**: 基于简历和偏好的职位/职业路径推荐
-- **收藏夹**: 收藏职位、关注公司
