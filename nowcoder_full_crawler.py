@@ -4,8 +4,10 @@
 ====================================
 技术栈覆盖:
   (1) requests       — 直接 HTTP 请求获取岗位列表 JSON + 公司详情 JSON
-  (2) 正则表达式     — 文本清洗、HTML 标签剥离
-  (3) JSON           — 数据保存
+  (2) Playwright     — 浏览器自动化，打开公司页面获取公司介绍
+  (3) BeautifulSoup  — 解析公司页面 HTML
+  (4) 正则表达式     — 文本清洗、HTML 标签剥离
+  (5) JSON           — 数据保存
 
 爬取: 28 种计算机岗位 × 校招/实习/社招
 输出: output/{校招,实习,社招}岗位.json
@@ -20,6 +22,8 @@ import time
 from datetime import datetime
 
 import requests
+from playwright.async_api import async_playwright
+from bs4 import BeautifulSoup
 
 # ==================== Windows 编码 ====================
 if sys.platform == "win32":
@@ -27,11 +31,7 @@ if sys.platform == "win32":
 
 # ==================== 配置 ====================
 JOB_KEYWORDS = [
-    "Java", "C++", "PHP", "golang", "安全工程师", "游戏后端", "区块链",
-    "信息技术岗", "C 工程师", "C# 工程师", ".NET", "Python", "Delphi",
-    "GIS 工程师", "VB", "Perl", "Ruby", "Node.js", "Erlang", "后端工程师",
-    "语音/视频/图形开发", "全栈开发", "前端工程师", "Web 前端",
-    "前端开发其它", "游戏前端", "HTML5", "UI设计师", "交互设计师",
+    "Java"
 ]
 
 RECRUIT_TYPES = [
@@ -45,6 +45,7 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 
 LIST_API = "https://www.nowcoder.com/np-api/u/job/square-search"
 COMPANY_API = "https://www.nowcoder.com/np-api/u/company/detail"
+BASE_URL = "https://www.nowcoder.com"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -58,6 +59,7 @@ HEADERS = {
 # ==================== 工具函数 ====================
 
 def html_to_text(html_str):
+    """正则表达式：剥离 HTML 标签"""
     if not html_str:
         return ""
     if not isinstance(html_str, str):
@@ -69,9 +71,15 @@ def html_to_text(html_str):
     return re.sub(r"\n\s*\n", "\n", text).strip()
 
 
-# 解析 ext JSON 字段，提取岗位职责、岗位要求、加分项
-def parse_ext(ext_str):
+# def bs_html_to_text(html_str):
+#     """BeautifulSoup：将 HTML 转为纯文本"""
+#     if not html_str:
+#         return ""
+#     return BeautifulSoup(html_str, "html.parser").get_text(separator="\n").strip()
 
+
+def parse_ext(ext_str):
+    """解析 ext JSON 字段，提取岗位职责、岗位要求、加分项"""
     infos = requirements = bonus = ""
     if not ext_str:
         return infos, requirements, bonus
@@ -164,7 +172,11 @@ def parse_job_item(data, keyword, recruit_name):
 
 # ==================== (1) requests：获取岗位列表 JSON ====================
 
-def fetch_jobs_via_requests(keyword, recruit_type, recruit_name, city="杭州"):
+def fetch_jobs_via_requests(keyword, recruit_type, city="杭州"):
+    """
+    使用 requests 库直接调用岗位搜索 API。
+    返回岗位数据列表。
+    """
     all_jobs = []
     page = 1
 
@@ -196,7 +208,7 @@ def fetch_jobs_via_requests(keyword, recruit_type, recruit_name, city="杭州"):
             print(f"      [requests] 共 {total} 条, {total_page} 页")
 
         for item in items:
-            all_jobs.append(parse_job_item(item.get("data", {}), keyword, recruit_name))
+            all_jobs.append(parse_job_item(item.get("data", {}), keyword, ""))
 
         print(f"      第 {page}/{total_page} 页 → {len(items)} 条, 累计 {len(all_jobs)} 条")
 
@@ -208,48 +220,93 @@ def fetch_jobs_via_requests(keyword, recruit_type, recruit_name, city="杭州"):
     return all_jobs
 
 
-# ==================== (2) 并发获取公司介绍 ====================
+# ==================== (2) Playwright + BeautifulSoup：获取公司介绍 & 官网 ====================
 
-async def fetch_company_detail_async(company_id):
-    """异步获取公司详情（通过 asyncio.to_thread 避免阻塞）"""
+async def fetch_company_intro_via_playwright(page, company_id, company_name):
+    """
+    使用 Playwright 导航到企业页面 + BeautifulSoup 解析 HTML，
+    仅获取公司介绍。
+    URL: https://www.nowcoder.com/enterprise/{company_id}
+    """
+    url = f"https://www.nowcoder.com/enterprise/{company_id}"
+    result = ""
     try:
-        resp = await asyncio.to_thread(
-            requests.get,
+        await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        await asyncio.sleep(2)
+        html = await page.content()
+        soup = BeautifulSoup(html, "html.parser")
+
+        company_info_el = soup.select_one(".company-info")
+        if company_info_el:
+            text = company_info_el.get_text(separator="\n", strip=True)
+            lines = [l.strip() for l in text.split("\n") if l.strip()]
+            result = "\n".join(lines)
+
+        if result:
+            print(f"   playwright yes  ", end="", flush=True)
+        else:
+            print(f"   playwright no  ", end="", flush=True)
+        return result
+    except Exception as e:
+        print(f"   error: {e}")
+        return ""
+
+
+# ==================== (3) requests：获取公司详情 JSON ====================
+
+def fetch_company_detail_via_requests(company_id):
+    """使用 requests 库获取公司详情 API 的 JSON 数据。"""
+    try:
+        resp = requests.get(
             f"{COMPANY_API}?companyId={company_id}",
-            headers={**HEADERS, "Referer": f"https://www.nowcoder.com/enterprises/{company_id}"},
+            headers={**HEADERS, "Referer": f"https://www.nowcoder.com/enterprise/{company_id}"},
             timeout=15,
         )
         data = resp.json()
         if data.get("code") != 0:
-            return company_id, ""
+            return {}
         c = data.get("data", {}).get("recommendInternCompany", {}) or {}
-        return company_id, html_to_text(c.get("detail", ""))
+        return {
+            "公司介绍": html_to_text(c.get("detail", ""))
+        }
     except Exception as e:
-        return company_id, ""
+        print(f"      [requests] 公司详情失败: {e}")
+        return {}
 
 
-async def enrich_company_intros(jobs):
-    """并发获取所有公司的介绍"""
-    unique_ids = list(dict.fromkeys(j["公司ID"] for j in jobs if j.get("公司ID")))
-    if not unique_ids:
+async def enrich_company_intros(page, jobs):
+    """补全所有岗位的公司信息（requests 优先 → Playwright 兜底）"""
+    unique = {j["公司ID"]: j["公司名称"] for j in jobs if j.get("公司ID")}
+    if not unique:
         return jobs
 
-    print(f"\n  [公司信息] 共 {len(unique_ids)} 家, 并发获取中...")
+    print(f"\n  [公司信息] 共 {len(unique)} 家, 获取中...")
+    cache = {}
 
-    # 并发发起所有请求
-    tasks = [fetch_company_detail_async(cid) for cid in unique_ids]
-    results = await asyncio.gather(*tasks)
+    for i, (cid, cname) in enumerate(unique.items(), 1):
+        print(f"    [{i}/{len(unique)}] {cname} ...", end="", flush=True)
 
-    # 写入缓存
-    cache = {cid: intro for cid, intro in results if intro}
+        # === requests 调 API ===
+        detail = fetch_company_detail_via_requests(cid)
+        if detail.get("公司介绍"):
+            cache[cid] = detail
+            print(f" requests OK")
+            continue
+
+        # === Playwright 补公司介绍 ===
+        print(f" requests(无介绍)", end="", flush=True)
+        intro = await fetch_company_intro_via_playwright(page, cid, cname)
+
+        await asyncio.sleep(0.3)
 
     # 将缓存数据写回岗位
     for job in jobs:
         cid = job.get("公司ID", "")
         if cid in cache:
-            job["公司介绍"] = cache[cid]
+            for k, v in cache[cid].items():
+                if k in job and not job[k]:
+                    job[k] = v
 
-    print(f"  [公司信息] 获取成功 {len(cache)}/{len(unique_ids)} 家")
     return jobs
 
 
@@ -269,6 +326,7 @@ def deduplicate(jobs):
 # ==================== (5) JSON 保存 ====================
 
 def save_json(jobs, filepath):
+    """保存为 JSON 文件"""
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(jobs, f, ensure_ascii=False, indent=2)
     kb = os.path.getsize(filepath) / 1024
@@ -311,38 +369,58 @@ async def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     all_results = {}
 
-    # 遍历三种招聘类型
-    for rt in RECRUIT_TYPES:
-        name = rt["name"]
-        rtype = rt["recruit_type"]
-        print(f"\n{'='*70}")
-        print(f"  【{name}】开始爬取")
-        print(f"{'='*70}")
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            user_agent=HEADERS["User-Agent"],
+            viewport={"width": 1920, "height": 1080},
+            locale="zh-CN",
+        )
+        page = await context.new_page()
 
-        all_jobs = []
+        # 先访问首页建立会话
+        print("\n[浏览器] 建立会话...")
+        await page.goto(BASE_URL, wait_until="domcontentloaded", timeout=20000)
+        await asyncio.sleep(1)
 
-        for ki, kw in enumerate(JOB_KEYWORDS, 1):
-            print(f"\n  [{ki}/{len(JOB_KEYWORDS)}] {kw}")
-            try:
-                jobs = fetch_jobs_via_requests(kw, rtype, name)
-                all_jobs.extend(jobs)
-                print(f"  ✅ '{kw}' → {len(jobs)} 条, 累计 {len(all_jobs)} 条")
-            except Exception as e:
-                print(f"  ❌ '{kw}' 失败: {e}")
+        # 遍历三种招聘类型
+        for rt in RECRUIT_TYPES:
+            name = rt["name"]
+            rtype = rt["recruit_type"]
+            print(f"\n{'='*70}")
+            print(f"  【{name}】开始爬取")
+            print(f"{'='*70}")
 
-            time.sleep(0.5)
+            all_jobs = []
 
-        # 去重
-        before = len(all_jobs)
-        all_jobs = deduplicate(all_jobs)
-        print(f"\n  [去重] {before} → {len(all_jobs)} 条")
+            for ki, kw in enumerate(JOB_KEYWORDS, 1):
+                print(f"\n  [{ki}/{len(JOB_KEYWORDS)}] {kw}")
+                try:
+                    jobs = fetch_jobs_via_requests(kw, rtype)
+                    # 补上招聘类型和关键词
+                    for j in jobs:
+                        j["招聘类型"] = name
+                        j["搜索关键词"] = kw
+                    all_jobs.extend(jobs)
+                    print(f"  ✅ '{kw}' → {len(jobs)} 条, 累计 {len(all_jobs)} 条")
+                except Exception as e:
+                    print(f"  ❌ '{kw}' 失败: {e}")
 
-        # 补全公司介绍（并发）
-        all_jobs = await enrich_company_intros(all_jobs)
+                time.sleep(0.5)
 
-        # 保存 JSON
-        save_json(all_jobs, os.path.join(OUTPUT_DIR, f"{name}岗位.json"))
-        all_results[name] = all_jobs
+            # 去重
+            before = len(all_jobs)
+            all_jobs = deduplicate(all_jobs)
+            print(f"\n  [去重] {before} → {len(all_jobs)} 条")
+
+            # 补全公司介绍
+            all_jobs = await enrich_company_intros(page, all_jobs)
+
+            # 保存 JSON
+            save_json(all_jobs, os.path.join(OUTPUT_DIR, f"{name}岗位.json"))
+            all_results[name] = all_jobs
+
+        await browser.close()
 
     print_summary(all_results)
     print(f"\n✅ 爬取完成! JSON 文件保存在: {OUTPUT_DIR}")
