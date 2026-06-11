@@ -8,8 +8,12 @@ from app.models.user import User
 from app.schemas import (
     BoxPlotData,
     CategoryDistribution,
+    CityDistribution,
+    CompanyPositionCount,
     DashboardSummary,
     EducationDistribution,
+    FinancingStage,
+    IndustryDistribution,
     SalaryBucket,
     ScaleDistribution,
     SkillCount,
@@ -83,6 +87,7 @@ def get_skill_counts(
 def get_trends(
     type: str = "all",
     granularity: str = "month",
+    nodes: int = 14,
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
@@ -96,7 +101,14 @@ def get_trends(
         ORDER BY period ASC
     """)
     result = db.execute(query)
-    return [TrendPoint(date=row[0], count=row[1]) for row in result.fetchall()]
+    all_rows = [{"date": row[0], "count": row[1]} for row in result.fetchall()]
+
+    if not all_rows:
+        return [TrendPoint(date="", count=0)]
+
+    # Return all monthly data — frontend will sample for x-axis labels
+    # but tooltip shows the full month detail
+    return [TrendPoint(date=r["date"], count=r["count"]) for r in all_rows]
 
 
 @router.get("/category-distribution")
@@ -134,7 +146,144 @@ def get_company_scale(
         ORDER BY cnt DESC
     """)
     result = db.execute(query)
-    return [ScaleDistribution(scale=row[0], count=row[1]) for row in result.fetchall()]
+    rows = result.fetchall()
+
+    # Map raw scale strings to fixed bucket labels
+    bucket_map = {
+        "0-20": "0-20",
+        "20-99": "20-99",
+        "100-499": "100-499",
+        "500-999": "500-999",
+        "1000-9999": "1k-9999",
+        "10000-": "1w~",
+    }
+    bucket_order = ["0-20", "20-99", "100-499", "500-999", "1k-9999", "1w~"]
+    buckets = {b: 0 for b in bucket_order}
+
+    for scale, cnt in rows:
+        if not scale:
+            continue
+        raw = scale.strip()
+        # Normalize: remove "人" suffix, trim spaces, replace common patterns
+        norm = raw.replace("人", "").replace(" ", "").replace(",", "")
+        # Try exact match first
+        found = False
+        for key in bucket_map:
+            if norm == key:
+                buckets[bucket_map[key]] += cnt
+                found = True
+                break
+        if found:
+            continue
+        # Range matching
+        import re
+        nums = re.findall(r'\d+', norm)
+        if len(nums) == 2:
+            low, high = int(nums[0]), int(nums[1])
+            if low < 20:
+                buckets["0-20"] += cnt
+            elif low < 100:
+                buckets["20-99"] += cnt
+            elif low < 500:
+                buckets["100-499"] += cnt
+            elif low < 1000:
+                buckets["500-999"] += cnt
+            else:
+                buckets["1k-9999"] += cnt
+        elif len(nums) == 1:
+            if int(nums[0]) >= 10000:
+                buckets["1w~"] += cnt
+            else:
+                buckets["1k-9999"] += cnt
+        else:
+            buckets["1k-9999"] += cnt
+
+    result_list = []
+    for b in bucket_order:
+        if buckets[b] > 0:
+            result_list.append(ScaleDistribution(scale=b, count=buckets[b]))
+    return result_list
+
+
+@router.get("/industry-distribution")
+def get_industry_distribution(
+    type: str = "all",
+    limit: int = 12,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    rf = _recruit_filter(type)
+    query = text(f"""
+        SELECT c.industry, COUNT(*) as cnt
+        FROM job_positions jp
+        JOIN companies c ON jp.company_id = c.id
+        WHERE jp.is_active = 1 AND c.industry IS NOT NULL AND c.industry != '' {rf}
+        GROUP BY c.industry
+        ORDER BY cnt DESC
+        LIMIT {limit}
+    """)
+    result = db.execute(query)
+    return [IndustryDistribution(name=row[0], value=row[1]) for row in result.fetchall()]
+
+
+@router.get("/company-position-counts")
+def get_company_position_counts(
+    type: str = "all",
+    limit: int = 15,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    rf = _recruit_filter(type)
+    query = text(f"""
+        SELECT c.name, COUNT(*) as cnt
+        FROM job_positions jp
+        JOIN companies c ON jp.company_id = c.id
+        WHERE jp.is_active = 1 {rf}
+        GROUP BY c.id, c.name
+        ORDER BY cnt DESC
+        LIMIT {limit}
+    """)
+    result = db.execute(query)
+    return [CompanyPositionCount(name=row[0], count=row[1]) for row in result.fetchall()]
+
+
+@router.get("/financing-stage")
+def get_financing_stage(
+    type: str = "all",
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    rf = _recruit_filter(type)
+    query = text(f"""
+        SELECT c.financing_stage, COUNT(*) as cnt
+        FROM job_positions jp
+        JOIN companies c ON jp.company_id = c.id
+        WHERE jp.is_active = 1 AND c.financing_stage IS NOT NULL AND c.financing_stage != '' {rf}
+        GROUP BY c.financing_stage
+        ORDER BY cnt DESC
+    """)
+    result = db.execute(query)
+    return [FinancingStage(stage=row[0], count=row[1]) for row in result.fetchall()]
+
+
+@router.get("/city-distribution")
+def get_city_distribution(
+    type: str = "all",
+    limit: int = 15,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    rf = _recruit_filter(type)
+    query = text(f"""
+        SELECT jp.city, COUNT(*) as cnt
+        FROM job_positions jp
+        WHERE jp.is_active = 1 AND jp.city IS NOT NULL AND jp.city != '' {rf}
+        GROUP BY jp.city
+        ORDER BY cnt DESC
+        LIMIT {limit}
+    """)
+    result = db.execute(query)
+    return [CityDistribution(city=row[0], count=row[1]) for row in result.fetchall()]
 
 
 @router.get("/education-requirements")

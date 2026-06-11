@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-牛客网杭州地区计算机岗位招聘信息爬虫
+牛客网多地区计算机岗位招聘信息爬虫
 ====================================
 技术栈覆盖:
   (1) requests       — 直接 HTTP 请求获取岗位列表 JSON + 公司详情 JSON
@@ -9,7 +9,7 @@
   (4) 正则表达式     — 文本清洗、HTML 标签剥离
   (5) JSON           — 数据保存
 
-爬取: 28 种计算机岗位 × 校招/实习/社招
+爬取: 28 种计算机岗位 × 校招/实习/社招 × 7 个城市
 输出: output/{校招,实习,社招}岗位.json
 """
 
@@ -31,7 +31,11 @@ if sys.platform == "win32":
 
 # ==================== 配置 ====================
 JOB_KEYWORDS = [
-    "Java"
+     "Java", "C++", "PHP", "golang", "安全工程师", "游戏后端", "区块链",
+    "信息技术岗", "C 工程师", "C# 工程师", ".NET", "Python", "Delphi",
+    "GIS 工程师", "VB", "Perl", "Ruby", "Node.js", "Erlang", "后端工程师",
+    "语音/视频/图形开发", "全栈开发", "前端工程师", "Web 前端",
+    "前端开发其它", "游戏前端", "HTML5", "UI设计师", "交互设计师"
 ]
 
 RECRUIT_TYPES = [
@@ -39,6 +43,8 @@ RECRUIT_TYPES = [
     {"name": "实习", "recruit_type": 2},
     {"name": "社招", "recruit_type": 3},
 ]
+
+CITIES = ["杭州", "上海", "北京", "深圳", "安徽", "苏州", "温州"]
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
@@ -172,7 +178,7 @@ def parse_job_item(data, keyword, recruit_name):
 
 # ==================== (1) requests：获取岗位列表 JSON ====================
 
-def fetch_jobs_via_requests(keyword, recruit_type, city="杭州"):
+def fetch_jobs_via_requests(keyword, recruit_type, recruit_name, city):
     """
     使用 requests 库直接调用岗位搜索 API。
     返回岗位数据列表。
@@ -208,7 +214,7 @@ def fetch_jobs_via_requests(keyword, recruit_type, city="杭州"):
             print(f"      [requests] 共 {total} 条, {total_page} 页")
 
         for item in items:
-            all_jobs.append(parse_job_item(item.get("data", {}), keyword, ""))
+            all_jobs.append(parse_job_item(item.get("data", {}), keyword, recruit_name))
 
         print(f"      第 {page}/{total_page} 页 → {len(items)} 条, 累计 {len(all_jobs)} 条")
 
@@ -362,8 +368,8 @@ def print_summary(all_results):
 
 async def main():
     print("=" * 70)
-    print("  牛客网杭州地区计算机岗位招聘爬虫")
-    print(f"  关键词: {len(JOB_KEYWORDS)} 个, 招聘类型: 校招/实习/社招")
+    print("  牛客网多地区计算机岗位招聘爬虫")
+    print(f"  城市: {len(CITIES)} 个, 关键词: {len(JOB_KEYWORDS)} 个, 招聘类型: 校招/实习/社招")
     print("=" * 70)
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -393,20 +399,18 @@ async def main():
 
             all_jobs = []
 
-            for ki, kw in enumerate(JOB_KEYWORDS, 1):
-                print(f"\n  [{ki}/{len(JOB_KEYWORDS)}] {kw}")
-                try:
-                    jobs = fetch_jobs_via_requests(kw, rtype)
-                    # 补上招聘类型和关键词
-                    for j in jobs:
-                        j["招聘类型"] = name
-                        j["搜索关键词"] = kw
-                    all_jobs.extend(jobs)
-                    print(f"  ✅ '{kw}' → {len(jobs)} 条, 累计 {len(all_jobs)} 条")
-                except Exception as e:
-                    print(f"  ❌ '{kw}' 失败: {e}")
+            for ci, city in enumerate(CITIES, 1):
+                print(f"\n  [{ci}/{len(CITIES)}] 城市: {city}")
+                for ki, kw in enumerate(JOB_KEYWORDS, 1):
+                    print(f"    [{ki}/{len(JOB_KEYWORDS)}] {kw}")
+                    try:
+                        jobs = fetch_jobs_via_requests(kw, rtype, name, city)
+                        all_jobs.extend(jobs)
+                        print(f"    ✅ '{kw}' @ {city} → {len(jobs)} 条, 累计 {len(all_jobs)} 条")
+                    except Exception as e:
+                        print(f"    ❌ '{kw}' @ {city} 失败: {e}")
 
-                time.sleep(0.5)
+                    time.sleep(0.5)
 
             # 去重
             before = len(all_jobs)

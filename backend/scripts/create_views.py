@@ -3,12 +3,13 @@ import sys, os
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 from app.core.database import engine
+from app.models.position import RecruitType
 from sqlalchemy import text
 
 VIEWS = {
-    "v_campus_positions": "CAMPUS",
-    "v_social_positions": "SOCIAL",
-    "v_intern_positions": "INTERN",
+    "v_campus_positions": RecruitType.CAMPUS.name,
+    "v_social_positions": RecruitType.SOCIAL.name,
+    "v_intern_positions": RecruitType.INTERN.name,
 }
 
 SQL_TEMPLATE = """

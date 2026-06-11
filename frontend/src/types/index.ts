@@ -100,6 +100,11 @@ export interface BoxPlotData {
   name: string; min: number; q1: number; median: number; q3: number; max: number; mean: number;
 }
 
+export interface IndustryDistribution { name: string; value: number; }
+export interface CompanyPositionCount { name: string; count: number; }
+export interface FinancingStage { stage: string; count: number; }
+export interface CityDistribution { city: string; count: number; }
+
 export interface Resume {
   id: number;
   file_name: string;

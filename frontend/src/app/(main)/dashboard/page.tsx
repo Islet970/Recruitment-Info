@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
@@ -10,16 +10,17 @@ import { CanvasRenderer } from "echarts/renderers";
 import { LineChart, PieChart, BarChart, ScatterChart } from "echarts/charts";
 import {
   TitleComponent, TooltipComponent, LegendComponent, GridComponent,
-  ToolboxComponent, DataZoomComponent
+  ToolboxComponent
 } from "echarts/components";
 import type {
   DashboardSummary, TrendPoint, CategoryDistribution, EducationDistribution,
-  SkillCount, SalaryBucket, BoxPlotData, ScaleDistribution
+  SkillCount, ScaleDistribution, IndustryDistribution, CompanyPositionCount,
+  FinancingStage, CityDistribution
 } from "@/types";
-import { LayoutDashboard, GraduationCap, Building2, Briefcase } from "lucide-react";
+import { LayoutDashboard, Building2, Briefcase } from "lucide-react";
 
 echarts.use([CanvasRenderer, LineChart, PieChart, BarChart, ScatterChart,
-  TitleComponent, TooltipComponent, LegendComponent, GridComponent, ToolboxComponent, DataZoomComponent]);
+  TitleComponent, TooltipComponent, LegendComponent, GridComponent, ToolboxComponent]);
 
 type TabType = "all" | "campus" | "social" | "intern";
 const tabs: { key: TabType; label: string }[] = [
@@ -34,22 +35,33 @@ const chartBase = {
   backgroundColor: "transparent",
 };
 
+function abbreviateDate(dateStr: string): string {
+  const parts = dateStr.split("-");
+  if (parts.length >= 2) return parts[0].slice(2) + "-" + parts[1];
+  return dateStr;
+}
+
+function sampleIndices(len: number, n: number): Set<number> {
+  if (len <= n) return new Set(Array.from({ length: len }, (_, i) => i));
+  const step = (len - 1) / (n - 1);
+  const set = new Set<number>();
+  for (let i = 0; i < n; i++) set.add(Math.round(i * step));
+  return set;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [tab, setTab] = useState<TabType>("all");
-  const salaryPeriod = tab === "intern" ? "daily" : "monthly";
-  const [salaryField, setSalaryField] = useState<"min" | "max">("min");
-  const [topGroupBy, setTopGroupBy] = useState<"category" | "skill">("category");
   const [showSkillDetail, setShowSkillDetail] = useState(false);
 
-  const { data: summary, refetch: refetchSummary } = useQuery<DashboardSummary>({
+  const { data: summary } = useQuery<DashboardSummary>({
     queryKey: ["dashboard-summary", tab],
     queryFn: async () => (await api.get("/dashboard/summary", { params: { type: tab } })).data,
   });
 
   const { data: trends } = useQuery<TrendPoint[]>({
     queryKey: ["dashboard-trends", tab],
-    queryFn: async () => (await api.get("/dashboard/trends", { params: { type: tab } })).data,
+    queryFn: async () => (await api.get("/dashboard/trends", { params: { type: tab, granularity: "month", nodes: 14 } })).data,
   });
 
   const { data: categoryDist } = useQuery<CategoryDistribution[]>({
@@ -67,39 +79,29 @@ export default function DashboardPage() {
     queryFn: async () => (await api.get("/dashboard/skills-cloud", { params: { type: tab, limit: 60 } })).data,
   });
 
-  const { data: salaryDist } = useQuery<SalaryBucket[]>({
-    queryKey: ["dashboard-salary", tab, salaryPeriod, salaryField],
-    queryFn: async () => (await api.get("/dashboard/salary-distribution", { params: { type: tab, period: salaryPeriod, field: salaryField } })).data,
-    enabled: tab !== "all",
-  });
-
-  const { data: salaryByCategory } = useQuery<BoxPlotData[]>({
-    queryKey: ["dashboard-salary-cat", tab, salaryPeriod],
-    queryFn: async () => (await api.get("/dashboard/salary-by-category", { params: { type: tab, period: salaryPeriod } })).data,
-    enabled: tab !== "all",
-  });
-
-  const { data: eduVsSalary } = useQuery<BoxPlotData[]>({
-    queryKey: ["dashboard-edu-salary", tab, salaryPeriod],
-    queryFn: async () => (await api.get("/dashboard/education-vs-salary", { params: { type: tab, period: salaryPeriod } })).data,
-    enabled: tab !== "all",
-  });
-
-  const { data: expVsSalary } = useQuery<BoxPlotData[]>({
-    queryKey: ["dashboard-exp-salary", tab, salaryPeriod],
-    queryFn: async () => (await api.get("/dashboard/experience-vs-salary", { params: { type: tab, period: salaryPeriod } })).data,
-    enabled: tab !== "all",
-  });
-
-  const { data: topPaying } = useQuery<{ name: string; salary_avg: number }[]>({
-    queryKey: ["dashboard-top", tab, topGroupBy, salaryPeriod],
-    queryFn: async () => (await api.get("/dashboard/top-paying", { params: { type: tab, group_by: topGroupBy, period: salaryPeriod, limit: 10 } })).data,
-    enabled: tab !== "all",
-  });
-
   const { data: companyScale } = useQuery<ScaleDistribution[]>({
     queryKey: ["dashboard-scale", tab],
     queryFn: async () => (await api.get("/dashboard/company-scale", { params: { type: tab } })).data,
+  });
+
+  const { data: industryDist } = useQuery<IndustryDistribution[]>({
+    queryKey: ["dashboard-industry", tab],
+    queryFn: async () => (await api.get("/dashboard/industry-distribution", { params: { type: tab } })).data,
+  });
+
+  const { data: companyCounts } = useQuery<CompanyPositionCount[]>({
+    queryKey: ["dashboard-company-counts", tab],
+    queryFn: async () => (await api.get("/dashboard/company-position-counts", { params: { type: tab } })).data,
+  });
+
+  const { data: financingStage } = useQuery<FinancingStage[]>({
+    queryKey: ["dashboard-financing", tab],
+    queryFn: async () => (await api.get("/dashboard/financing-stage", { params: { type: tab } })).data,
+  });
+
+  const { data: cityDist } = useQuery<CityDistribution[]>({
+    queryKey: ["dashboard-city", tab],
+    queryFn: async () => (await api.get("/dashboard/city-distribution", { params: { type: tab } })).data,
   });
 
   const { data: skillCounts } = useQuery<SkillCount[]>({
@@ -108,14 +110,32 @@ export default function DashboardPage() {
     enabled: showSkillDetail,
   });
 
+  const trendsFull = trends || [];
+  const trendLabelIndices = sampleIndices(trendsFull.length, 14);
+
   const trendOption = {
     ...chartBase,
-    tooltip: { trigger: "axis" },
+    tooltip: {
+      trigger: "axis",
+      formatter: (params: any) => {
+        const p = Array.isArray(params) ? params[0] : params;
+        const item = trendsFull[p.dataIndex];
+        if (!item) return "";
+        return `${item.date}<br/>岗位数: ${item.count}`;
+      },
+    },
     grid: { left: 40, right: 16, top: 10, bottom: 24 },
-    xAxis: { type: "category", data: trends?.map(t => t.date) || [], axisLabel: { color: "#8899b4", fontSize: 10, rotate: 45 } },
-    yAxis: { type: "value", axisLabel: { color: "#8899b4", fontSize: 10 } },
+    xAxis: {
+      type: "category",
+      data: trendsFull.map(t => abbreviateDate(t.date)),
+      axisLabel: {
+        color: "#8899b4", fontSize: 10, rotate: 0,
+        interval: (idx: number) => trendLabelIndices.has(idx),
+      },
+    },
+    yAxis: { type: "value", axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 } },
     series: [{
-      type: "line", data: trends?.map(t => t.count) || [],
+      type: "line", data: trendsFull.map(t => t.count),
       smooth: true, symbol: "none",
       lineStyle: { color: "#6366f1", width: 2 },
       areaStyle: { color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -129,11 +149,7 @@ export default function DashboardPage() {
     ...chartBase,
     tooltip: { trigger: "item", formatter: "{b}: {c} 个 ({d}%)" },
     legend: {
-      type: "scroll",
-      orient: "vertical",
-      right: 10,
-      top: 10,
-      bottom: 10,
+      type: "scroll", orient: "vertical", right: 10, top: 10, bottom: 10,
       textStyle: { color: "#8899b4", fontSize: 11 },
       pageTextStyle: { color: "#8899b4" },
     },
@@ -165,8 +181,8 @@ export default function DashboardPage() {
     ...chartBase,
     tooltip: { trigger: "axis" },
     grid: { left: 40, right: 16, top: 10, bottom: 24 },
-    xAxis: { type: "category", data: eduDist?.map(e => e.education) || [], axisLabel: { color: "#8899b4", fontSize: 10 } },
-    yAxis: { type: "value", axisLabel: { color: "#8899b4", fontSize: 10 } },
+    xAxis: { type: "category", data: eduDist?.map(e => e.education) || [], axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 } },
+    yAxis: { type: "value", axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 } },
     series: [{
       type: "bar", data: eduDist?.map(e => e.count) || [],
       itemStyle: {
@@ -179,7 +195,6 @@ export default function DashboardPage() {
     }]
   };
 
-  // Wordcloud using scatter-like approach (avoid dependency issues)
   const wordCloudOption = {
     ...chartBase,
     tooltip: { show: true },
@@ -203,90 +218,121 @@ export default function DashboardPage() {
     }]
   };
 
-  const salaryFieldLabel = salaryField === "min" ? "最低薪资" : "最高薪资";
-
-  const salaryOption = {
-    ...chartBase,
-    tooltip: {
-      trigger: "axis",
-      formatter: (params: any) => {
-        const p = Array.isArray(params) ? params[0] : params;
-        return `${p.name}<br/>${salaryFieldLabel}: ${p.value} 个岗位`;
-      },
-    },
-    grid: { left: 50, right: 16, top: 10, bottom: 60 },
-    xAxis: { type: "category", data: salaryDist?.map(s => s.range) || [], axisLabel: { color: "#8899b4", fontSize: 10, rotate: 45 } },
-    yAxis: { type: "value", name: "岗位数", axisLabel: { color: "#8899b4", fontSize: 10 } },
-    series: [{
-      type: "bar", data: salaryDist?.map(s => s.count) || [],
-      itemStyle: { borderRadius: [6, 6, 0, 0], color: "#06b6d4" },
-      barWidth: "70%",
-    }]
-  };
-
-  const boxOption = (data: BoxPlotData[] | undefined, title: string) => ({
-    ...chartBase,
-    tooltip: {
-      trigger: "axis",
-      axisPointer: { type: "shadow" },
-      formatter: (params: any) => {
-        const items = Array.isArray(params) ? params : [params];
-        const name = items[0]?.axisValue || "";
-        const vals = items.map((p: any) => `${p.marker} ${p.seriesName}: ${p.value}${salaryPeriod === "monthly" ? "k" : ""}`).join("<br/>");
-        return `${name}<br/>${vals}`;
-      },
-    },
-    grid: { left: 50, right: 16, top: 10, bottom: 60 },
-    dataZoom: (data && data.length > 6) ? [
-      { type: "slider", bottom: 8, height: 16, borderColor: "#333", backgroundColor: "#1a1f2e", fillerColor: "rgba(99,102,241,0.2)", textStyle: { color: "#8899b4", fontSize: 10 } },
-      { type: "inside" },
-    ] : [],
-    xAxis: { type: "category", data: data?.map(d => d.name) || [], axisLabel: { color: "#8899b4", fontSize: 10 } },
-    yAxis: { type: "value", name: salaryPeriod === "monthly" ? "k/月" : "元/日", axisLabel: { color: "#8899b4", fontSize: 10 } },
-    series: [
-      {
-        type: "bar", name: "最低", data: data?.map(d => d.min) || [],
-        itemStyle: { color: "rgba(99,102,241,0.4)" }, barGap: "10%",
-      },
-      {
-        type: "bar", name: "均值", data: data?.map(d => d.mean) || [],
-        itemStyle: { color: "#06b6d4" },
-      },
-      {
-        type: "bar", name: "最高", data: data?.map(d => d.max) || [],
-        itemStyle: { color: "rgba(99,102,241,0.8)" },
-      },
-    ],
-  });
-
-  const topPayOption = {
-    ...chartBase,
-    tooltip: {
-      trigger: "axis",
-      axisPointer: { type: "shadow" },
-      formatter: (params: any) => {
-        const p = Array.isArray(params) ? params[0] : params;
-        return `${p.name}<br/>平均薪资: ${p.value}${salaryPeriod === "monthly" ? "k/月" : "元/日"}`;
-      },
-    },
-    grid: { left: 100, right: 16, top: 10, bottom: 24 },
-    xAxis: { type: "value", name: salaryPeriod === "monthly" ? "k/月" : "元/日", axisLabel: { color: "#8899b4", fontSize: 10 } },
-    yAxis: { type: "category", data: [...(topPaying || [])].sort((a,b) => a.salary_avg - b.salary_avg).map(t => t.name.length > 10 ? t.name.slice(0,10)+"..." : t.name), axisLabel: { color: "#8899b4", fontSize: 10 }, inverse: true },
-    series: [{
-      type: "bar", data: [...(topPaying || [])].sort((a,b) => a.salary_avg - b.salary_avg).map(t => t.salary_avg),
-      itemStyle: { borderRadius: [0, 6, 6, 0], color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [{ offset: 0, color: "#06b6d4" }, { offset: 1, color: "#6366f1" }]) },
-    }]
-  };
+  const scaleBuckets = ["0-20", "20-99", "100-499", "500-999", "1k-9999", "1w~"];
+  const scaleData = (() => {
+    const map: Record<string, number> = {};
+    for (const s of companyScale || []) map[s.scale] = s.count;
+    return scaleBuckets.map(k => map[k] || 0);
+  })();
 
   const scaleOption = {
     ...chartBase,
     tooltip: { trigger: "axis" },
     grid: { left: 40, right: 16, top: 10, bottom: 24 },
-    xAxis: { type: "category", data: companyScale?.map(s => s.scale) || [], axisLabel: { color: "#8899b4", fontSize: 10, rotate: 30 } },
-    yAxis: { type: "value", axisLabel: { color: "#8899b4", fontSize: 10 } },
+    xAxis: {
+      type: "category",
+      data: scaleBuckets,
+      axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 },
+    },
+    yAxis: { type: "value", axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 } },
     series: [{
-      type: "bar", data: companyScale?.map(s => s.count) || [],
+      type: "bar", data: scaleData,
       itemStyle: { borderRadius: [6, 6, 0, 0], color: "#8b5cf6" }, barWidth: 32,
+    }]
+  };
+
+  const industryOption = {
+    ...chartBase,
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+    grid: { left: 120, right: 40, top: 10, bottom: 24 },
+    xAxis: { type: "value", axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 } },
+    yAxis: {
+      type: "category",
+      data: [...(industryDist || [])].reverse().map(d => d.name),
+      axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 },
+    },
+    series: [{
+      type: "bar",
+      data: [...(industryDist || [])].reverse().map(d => d.value),
+      itemStyle: {
+        borderRadius: [0, 6, 6, 0],
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: "#06b6d4" }, { offset: 1, color: "#6366f1" }
+        ]),
+      },
+    }]
+  };
+
+  const companyCountOption = {
+    ...chartBase,
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+    grid: { left: 160, right: 40, top: 10, bottom: 24 },
+    xAxis: { type: "value", axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 } },
+    yAxis: {
+      type: "category",
+      data: (companyCounts || []).slice(0, 12).reverse().map(d => d.name),
+      axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 },
+    },
+    series: [{
+      type: "bar",
+      data: (companyCounts || []).slice(0, 12).reverse().map(d => d.count),
+      itemStyle: {
+        borderRadius: [0, 6, 6, 0],
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: "#f59e0b" }, { offset: 1, color: "#ef4444" }
+        ]),
+      },
+    }]
+  };
+
+  const financingColors = ["#6366f1", "#06b6d4", "#8b5cf6", "#22d3ee", "#a78bfa", "#67e8f9", "#818cf8", "#10b981", "#f59e0b", "#ef4444"];
+  const financingOption = {
+    ...chartBase,
+    tooltip: { trigger: "item", formatter: "{b}: {c} 个 ({d}%)" },
+    legend: {
+      type: "scroll", orient: "vertical", right: 10, top: 10, bottom: 10,
+      textStyle: { color: "#8899b4", fontSize: 11 },
+      pageTextStyle: { color: "#8899b4" },
+    },
+    series: [{
+      type: "pie", radius: ["35%", "65%"], center: ["30%", "50%"],
+      data: (financingStage || []).map(f => ({ name: f.stage, value: f.count })),
+      itemStyle: { borderRadius: 4, borderColor: "#0a0e17", borderWidth: 2 },
+      label: {
+        color: "#c8d0e0", fontSize: 10,
+        formatter: (p: any) => {
+          const total = (financingStage || []).reduce((s, f) => s + f.count, 0);
+          return total > 0 ? `${p.percent?.toFixed(1) || 0}%` : "";
+        },
+      },
+      labelLine: { length: 8, length2: 6, smooth: true },
+      color: financingColors,
+      emphasis: {
+        itemStyle: { shadowBlur: 10, shadowOffsetX: 0, shadowColor: "rgba(0,0,0,0.5)" },
+      },
+    }]
+  };
+
+  const cityOption = {
+    ...chartBase,
+    tooltip: { trigger: "axis" },
+    grid: { left: 50, right: 16, top: 10, bottom: 60 },
+    xAxis: {
+      type: "category",
+      data: (cityDist || []).map(c => c.city),
+      axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 },
+    },
+    yAxis: { type: "value", axisLabel: { color: "#8899b4", fontSize: 10, rotate: 0 } },
+    series: [{
+      type: "bar",
+      data: (cityDist || []).map(c => c.count),
+      itemStyle: {
+        borderRadius: [6, 6, 0, 0],
+        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: "#8b5cf6" }, { offset: 1, color: "#22d3ee" }
+        ]),
+      },
+      barWidth: 24,
     }]
   };
 
@@ -309,11 +355,9 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        <div
-          className="p-4 rounded-xl border cursor-pointer hover:scale-[1.02] transition-transform"
+        <div className="p-4 rounded-xl border cursor-pointer hover:scale-[1.02] transition-transform"
           style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
-          onClick={() => router.push("/companies")}
-        >
+          onClick={() => router.push("/companies")}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "rgba(6,182,212,0.15)" }}>
               <Building2 className="w-5 h-5" style={{ color: "var(--color-accent-light)" }} />
@@ -324,11 +368,9 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        <div
-          className="p-4 rounded-xl border cursor-pointer hover:scale-[1.02] transition-transform"
+        <div className="p-4 rounded-xl border cursor-pointer hover:scale-[1.02] transition-transform"
           style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
-          onClick={() => setShowSkillDetail(!showSkillDetail)}
-        >
+          onClick={() => setShowSkillDetail(!showSkillDetail)}>
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "rgba(139,92,246,0.15)" }}>
               <LayoutDashboard className="w-5 h-5" style={{ color: "#a78bfa" }} />
@@ -392,15 +434,33 @@ export default function DashboardPage() {
         </ChartCard>
 
         {/* Company Scale */}
-        {companyScale && companyScale.length > 0 && (
-          <ChartCard title="公司规模分布">
-            <ReactEChartsCore echarts={echarts} option={scaleOption} style={{ height: 280 }} notMerge />
-          </ChartCard>
-        )}
+        <ChartCard title="公司规模分布">
+          <ReactEChartsCore echarts={echarts} option={scaleOption} style={{ height: 280 }} notMerge />
+        </ChartCard>
 
         {/* Education */}
         <ChartCard title="学历要求">
           <ReactEChartsCore echarts={echarts} option={eduOption} style={{ height: 280 }} notMerge />
+        </ChartCard>
+
+        {/* Industry Distribution */}
+        <ChartCard title="所属行业分布">
+          <ReactEChartsCore echarts={echarts} option={industryOption} style={{ height: 280 }} notMerge />
+        </ChartCard>
+
+        {/* Company Position Counts */}
+        <ChartCard title="公司招聘岗位数（Top 12）">
+          <ReactEChartsCore echarts={echarts} option={companyCountOption} style={{ height: 280 }} notMerge />
+        </ChartCard>
+
+        {/* Financing Stage */}
+        <ChartCard title="融资阶段分布">
+          <ReactEChartsCore echarts={echarts} option={financingOption} style={{ height: 280 }} notMerge />
+        </ChartCard>
+
+        {/* City Distribution */}
+        <ChartCard title="公司城市分布">
+          <ReactEChartsCore echarts={echarts} option={cityOption} style={{ height: 280 }} notMerge />
         </ChartCard>
 
         {/* Word Cloud */}
@@ -408,71 +468,6 @@ export default function DashboardPage() {
           <ReactEChartsCore echarts={echarts} option={wordCloudOption} style={{ height: 300 }} notMerge />
         </ChartCard>
       </div>
-
-      {/* Type-specific charts */}
-      {tab !== "all" && (
-        <>
-          <div className="flex items-center justify-between mb-4 mt-8">
-            <h2 className="text-lg font-bold" style={{ color: "var(--color-primary-light)" }}>
-              {tabs.find(t => t.key === tab)?.label} — 详细分析
-              <span className="ml-2 text-xs font-normal" style={{ color: "var(--color-text-dim)" }}>
-                ({salaryPeriod === "monthly" ? "月薪 · k/月" : "日薪 · 元/日"})
-              </span>
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-5">
-            <ChartCard title={
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold">薪资分布</span>
-                <div className="flex gap-1">
-                  <button onClick={() => setSalaryField("min")}
-                    className="px-2 py-0.5 rounded text-xs transition-all"
-                    style={{ background: salaryField === "min" ? "var(--color-primary)" : "var(--color-surface2)", color: salaryField === "min" ? "#fff" : "var(--color-text-dim)" }}>
-                    最低薪资
-                  </button>
-                  <button onClick={() => setSalaryField("max")}
-                    className="px-2 py-0.5 rounded text-xs transition-all"
-                    style={{ background: salaryField === "max" ? "var(--color-primary)" : "var(--color-surface2)", color: salaryField === "max" ? "#fff" : "var(--color-text-dim)" }}>
-                    最高薪资
-                  </button>
-                </div>
-              </div>
-            }>
-              <ReactEChartsCore echarts={echarts} option={salaryOption} style={{ height: 300 }} notMerge />
-            </ChartCard>
-
-            <ChartCard title="各岗位类别薪资分布">
-              <ReactEChartsCore echarts={echarts} option={boxOption(salaryByCategory, "category")} style={{ height: 320 }} notMerge />
-            </ChartCard>
-
-            <ChartCard title="学历 & 薪资的关系">
-              <ReactEChartsCore echarts={echarts} option={boxOption(eduVsSalary, "education")} style={{ height: 280 }} notMerge />
-            </ChartCard>
-
-            <ChartCard title="经验要求 & 薪资的关系">
-              <ReactEChartsCore echarts={echarts} option={boxOption(expVsSalary, "experience")} style={{ height: 280 }} notMerge />
-            </ChartCard>
-
-            <ChartCard title={
-              <div className="flex items-center gap-3">
-                <span>最高薪岗位</span>
-                <div className="flex gap-1">
-                  {(["category","skill"] as const).map(g => (
-                    <button key={g} onClick={() => setTopGroupBy(g)}
-                      className="px-2 py-0.5 rounded text-xs"
-                      style={{ background: topGroupBy === g ? "var(--color-primary)" : "var(--color-surface2)", color: topGroupBy === g ? "#fff" : "var(--color-text-dim)" }}>
-                      {g === "category" ? "按类别" : "按技能"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            }>
-              <ReactEChartsCore echarts={echarts} option={topPayOption} style={{ height: 280 }} notMerge />
-            </ChartCard>
-          </div>
-        </>
-      )}
     </div>
   );
 }

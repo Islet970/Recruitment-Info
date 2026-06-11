@@ -26,7 +26,7 @@ def parse_salary(item):
     smax = item.get("薪资上限", 0) or 0
     stype = item.get("薪资类型", "月薪") or "月薪"
     smonth = item.get("薪资月数", 12) or 12
-    if smin == 0 and smax == 9999999:
+    if smin == 0 and smax >= 999999:
         smin, smax = 0, 0
     if "日" in stype:
         stype = "日薪"
@@ -165,7 +165,8 @@ def import_data():
                 # Skills
                 tags_str = item.get("岗位标签", "") or ""
                 if tags_str:
-                    tag_names = [t.strip() for t in tags_str.split(",") if t.strip()]
+                    tag_names = list(dict.fromkeys(t.strip() for t in tags_str.split(",") if t.strip()))
+                    linked_skill_ids = set()
                     for tag_name in tag_names:
                         if tag_name not in skill_map:
                             existing = db.query(Skill).filter(Skill.name == tag_name).first()
@@ -176,8 +177,12 @@ def import_data():
                                 db.add(s)
                                 db.flush()
                                 skill_map[tag_name] = s.id
-                        ps = PositionSkill(position_id=pos.id, skill_id=skill_map[tag_name])
-                        db.add(ps)
+                        sid = skill_map[tag_name]
+                        if sid in linked_skill_ids:
+                            continue
+                        linked_skill_ids.add(sid)
+                        ps = PositionSkill(position_id=pos.id, skill_id=sid)
+                        db.merge(ps)
 
                 total += 1
                 if total % 100 == 0:

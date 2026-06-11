@@ -18,7 +18,7 @@ CATEGORY_RULES = [
     # 2 算法 — algorithm engineering (non-AI-general)
     (r"^算法工程师|算法.*工程师|搜推广|推荐.*算法|搜索.*算法|广告.*算法|图形学.*算法", "算法"),
 
-    # 3 数据开发 — before 后端 so "Java+大数据" → 数据开发
+    # 3 数据开发 — before 后端 so "Java+大数据" / "Python数据开发" → 数据开发
     (r"大数据|数据仓库|ETL|数仓|数据工程师|数据开发|数据基础设施", "数据开发"),
 
     # 4 数据分析

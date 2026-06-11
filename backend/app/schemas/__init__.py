@@ -198,6 +198,26 @@ class TopPayingPosition(BaseModel):
     category_name: str | None = None
 
 
+class IndustryDistribution(BaseModel):
+    name: str
+    value: int
+
+
+class CompanyPositionCount(BaseModel):
+    name: str
+    count: int
+
+
+class FinancingStage(BaseModel):
+    stage: str
+    count: int
+
+
+class CityDistribution(BaseModel):
+    city: str
+    count: int
+
+
 # --- Resume ---
 class ResumeResponse(BaseModel):
     id: int
