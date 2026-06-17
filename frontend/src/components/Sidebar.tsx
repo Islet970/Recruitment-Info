@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Briefcase, Building2, FileText, Target, Settings,
-  LogOut, TrendingUp, ChevronLeft, ChevronRight
+  LogOut, TrendingUp, ChevronLeft, ChevronRight, BrainCircuit
 } from "lucide-react";
 import { useState } from "react";
 import clsx from "clsx";
@@ -16,6 +16,7 @@ const navItems = [
   { href: "/companies", label: "公司列表", icon: Building2 },
   { href: "/resume", label: "简历分析", icon: FileText },
   { href: "/recommendations", label: "职业推荐", icon: Target },
+  { href: "/ml", label: "智能分析", icon: BrainCircuit },
   { href: "/settings", label: "设置", icon: Settings },
 ];
 

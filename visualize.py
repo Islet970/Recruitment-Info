@@ -4,15 +4,15 @@
 """
 
 import json
-import os
 from collections import Counter
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")  # 无 GUI 后端，纯文件输出
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
+from wordcloud import WordCloud
 
 # ── 配置 ──────────────────────────────────────────────
 OUTPUT_DIR = Path(__file__).parent / "output"
@@ -97,28 +97,13 @@ def auto_pie(ax, labels, values, title):
     )
 
 
-# ── 通用字段提取 ──────────────────────────────────────
-def extract_salary(row):
-    """解析薪资，返回 (月薪下限, 月薪上限, 年薪万) 或 None"""
-    try:
-        lo = float(row.get("薪资下限", 0))
-        hi = float(row.get("薪资上限", 0))
-        months = float(row.get("薪资月数", 12))
-    except (ValueError, TypeError):
-        return None
-    if lo <= 0 or hi > 1_000_000 or hi <= lo:
-        return None
-    return lo, hi, (lo + hi) / 2 * months / 10_000
-
-
-
 # ══════════════════════════════════════════════════════
-#  图 1：招聘类型分布
+#  图 1：招聘类型分布（饼图）
 # ══════════════════════════════════════════════════════
-fig, ax = plt.subplots(figsize=(6, 4))
+fig, ax = plt.subplots(figsize=(7, 5))
 types = ci_counter(r.get("招聘类型") for r in data)
 labels, values = top_n(types, 10)
-auto_barh(ax, labels, values, "招聘类型分布", color="#4C72B0")
+auto_pie(ax, labels, values, "招聘类型分布")
 fig.tight_layout()
 fig.savefig(CHART_DIR / "01_招聘类型分布.png")
 plt.close(fig)
@@ -137,21 +122,21 @@ plt.close(fig)
 print("[OK] 02_搜索关键词分布.png")
 
 # ══════════════════════════════════════════════════════
-#  图 3：工作城市分布（Top 15）
+#  图 3：工作城市分布（饼图）
 # ══════════════════════════════════════════════════════
-fig, ax = plt.subplots(figsize=(6, 5))
+fig, ax = plt.subplots(figsize=(8, 6))
 cities = ci_counter(r.get("工作城市") for r in data)
 labels, values = top_n(cities, 15)
-auto_barh(ax, labels, values, "工作城市 Top 15", color="#55A868")
+auto_pie(ax, labels, values, "工作城市 Top 15")
 fig.tight_layout()
 fig.savefig(CHART_DIR / "03_工作城市分布.png")
 plt.close(fig)
 print("[OK] 03_工作城市分布.png")
 
 # ══════════════════════════════════════════════════════
-#  图 4：学历要求分布
+#  图 4：学历要求分布（饼图）
 # ══════════════════════════════════════════════════════
-fig, ax = plt.subplots(figsize=(7, 4))
+fig, ax = plt.subplots(figsize=(8, 6))
 edu = ci_counter(r.get("学历要求") for r in data)
 # 按学历高低排序
 edu_order = ["博士及以上", "硕士及以上", "硕士", "本科及以上", "本科", "大专及以上", "大专", "学历不限"]
@@ -159,7 +144,7 @@ edu_items = [(k, v) for k, v in edu.items()]
 edu_order_lower = [x.lower() for x in edu_order]
 edu_items.sort(key=lambda x: edu_order_lower.index(x[0]) if x[0] in edu_order_lower else 99)
 labels, values = zip(*edu_items) if edu_items else ([], [])
-auto_barh(ax, list(labels), list(values), "学历要求分布", color="#8172B2")
+auto_pie(ax, list(labels), list(values), "学历要求分布")
 fig.tight_layout()
 fig.savefig(CHART_DIR / "04_学历要求分布.png")
 plt.close(fig)
@@ -193,26 +178,24 @@ print("[OK] 06_所属行业分布.png")
 #  图 7-12：薪资分布箱线图（6 个维度 × 月薪/日薪双子图）
 # ══════════════════════════════════════════════════════════════════
 
-# ── 有效薪资数据 ──────────────────────────────────
-valid = []
-for r in data:
-    s = extract_salary(r)
-    if s:
-        valid.append({**r, "年薪(万)": s[2], "月薪下限": s[0], "月薪上限": s[1]})
-
-
 def plot_salary_boxplot(dimension, group_field, filename):
     """2 子图（月薪/日薪），每组数据量 <30 不绘制"""
-    monthly = {}
-    daily = {}
+    monthly, daily = {}, {}
 
-    for r in valid:
+    for r in data:
+        try:
+            lo = float(r.get("薪资下限", 0))
+            hi = float(r.get("薪资上限", 0))
+        except (ValueError, TypeError):
+            continue
+        if lo <= 0 or hi <= lo or hi > 1_000_000:
+            continue
+
         grp = (r.get(group_field) or "").strip().lower()
         if not grp:
             continue
-        lo, hi = r["月薪下限"], r["月薪上限"]
-        stype = (r.get("薪资类型") or "").strip()
-        target = daily if stype == "日薪" else monthly
+
+        target = daily if (r.get("薪资类型") or "").strip() == "日薪" else monthly
         target.setdefault(grp, []).append((lo + hi) / 2)
 
     monthly = dict(sorted(
@@ -293,21 +276,41 @@ plt.close(fig)
 print("[OK] 14_融资阶段分布.png")
 
 # ══════════════════════════════════════════════════════════════════
-#  图 15：岗位标签词云（用条形图替代 Top 20 标签）
+#  图 15：岗位标签词云
 # ══════════════════════════════════════════════════════════════════
-tags = []
+tag_counter = Counter()
+tag_display = {}
 for r in data:
     t = r.get("岗位标签", "")
     if t:
-        tags.extend([x.strip().lower() for x in t.split(",") if x.strip()])
-fig, ax = plt.subplots(figsize=(6, 6))
-tag_counter = Counter(tags)
-labels, values = top_n(tag_counter, 20)
-auto_barh(ax, labels, values, "岗位标签 Top 20", color="#64B5CD")
+        for x in t.split(","):
+            x = x.strip()
+            if x:
+                key = x.lower()
+                tag_counter[key] += 1
+                tag_display.setdefault(key, x)
+tags = {tag_display[k]: v for k, v in tag_counter.items()}
+fig, ax = plt.subplots(figsize=(12, 8))
+if tags:
+    wc = WordCloud(
+        font_path="C:/Windows/Fonts/simhei.ttf",
+        width=1200, height=800,
+        background_color="white",
+        max_words=30,
+        colormap="Set2",
+        random_state=42,
+        regexp=r"\S+",
+    ).generate_from_frequencies(tags)
+    ax.imshow(wc, interpolation="bilinear")
+    ax.axis("off")
+    ax.set_title("岗位标签词云", fontsize=14, fontweight="bold")
+else:
+    ax.text(0.5, 0.5, "无标签数据", ha="center", va="center", fontsize=14)
+    ax.set_title("岗位标签词云（无数据）", fontsize=14, fontweight="bold")
 fig.tight_layout()
-fig.savefig(CHART_DIR / "15_岗位标签Top20.png")
+fig.savefig(CHART_DIR / "15_岗位标签词云.png")
 plt.close(fig)
-print("[OK] 15_岗位标签Top20.png")
+print("[OK] 15_岗位标签词云.png")
 
 # ══════════════════════════════════════════════════════════════════
 #  图 16：各招聘类型的学历要求交叉分析（堆叠条形图）
@@ -341,36 +344,7 @@ fig.savefig(CHART_DIR / "16_招聘类型_学历交叉.png")
 plt.close(fig)
 print("[OK] 16_招聘类型_学历交叉.png")
 
-# ══════════════════════════════════════════════════════════════════
-#  图 17：Top 15 城市 × 平均薪资（气泡图）
-# ══════════════════════════════════════════════════════════════════
-city_salary = {}
-for r in valid:
-    city = (r.get("工作城市") or "").strip()
-    if city:
-        city_lower = city.lower()
-        city_salary.setdefault(city_lower, []).append(r["年薪(万)"])
-city_avg = {k: np.mean(v) for k, v in city_salary.items()}
-city_count = ci_counter(r.get("工作城市") for r in data)
-# 取岗位数最多的 15 个城市
-top_cities = [c for c, _ in city_count.most_common(15)]
-fig, ax = plt.subplots(figsize=(8, 5))
-sizes = [city_count[c] * 15 for c in top_cities]
-avg_sals = [city_avg.get(c, 0) for c in top_cities]
-sc = ax.scatter(range(len(top_cities)), avg_sals, s=sizes, c=sizes,
-                cmap="viridis", alpha=0.7, edgecolors="gray", linewidth=0.5)
-ax.set_xticks(range(len(top_cities)))
-ax.set_xticklabels(top_cities, fontsize=7, rotation=30, ha="right")
-ax.set_ylabel("平均年薪（万元）", fontsize=8)
-ax.set_title("Top 15 城市 · 岗位数(气泡大小) × 平均薪资", fontsize=10, fontweight="bold")
-# 颜色条
-cbar = fig.colorbar(sc, ax=ax, shrink=0.7)
-cbar.set_label("岗位数", fontsize=7)
-ax.tick_params(axis="y", labelsize=7)
-fig.tight_layout()
-fig.savefig(CHART_DIR / "17_城市薪资气泡图.png")
-plt.close(fig)
-print("[OK] 17_城市薪资气泡图.png")
 
-total_charts = 11  # 6 salary boxplots + 5 remaining
+
+total_charts = 16  # 6 salary boxplots + 5 remaining
 print(f"\n完成！共生成 {total_charts} 张图表，保存至: {CHART_DIR}")

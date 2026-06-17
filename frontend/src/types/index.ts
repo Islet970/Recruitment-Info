@@ -135,3 +135,55 @@ export interface RecommendedPosition {
   match_score: number;
   match_reasons: string[];
 }
+
+export interface SalaryPredictionResponse {
+  predicted_salary: number;
+  salary_unit: string;
+  input_features: Record<string, string | number>;
+  metrics: Record<string, { mae: number; rmse: number; r2: number }>;
+  sample_count: number;
+}
+
+export interface FeatureImportanceItem {
+  feature: string;
+  score: number;
+  percent: number;
+}
+
+export interface FeatureImportanceResponse {
+  items: FeatureImportanceItem[];
+  method: string;
+  sample_count: number;
+}
+
+export interface AssociationRule {
+  antecedent: string[];
+  consequent: string[];
+  support: number;
+  confidence: number;
+  lift: number;
+  count: number;
+}
+
+export interface AssociationRulesResponse {
+  rules: AssociationRule[];
+  transaction_count: number;
+}
+
+export interface AnomalyItem {
+  id: string;
+  name: string;
+  company: string;
+  city: string;
+  salary_text: string;
+  salary_mid: number;
+  method: string;
+  score: number;
+  reason: string;
+}
+
+export interface AnomalyResponse {
+  items: AnomalyItem[];
+  method: string;
+  sample_count: number;
+}
