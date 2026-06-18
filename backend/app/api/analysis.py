@@ -8,6 +8,8 @@ from app.models.user import User
 from app.models.resume import Resume
 from app.models.analysis import ResumeAnalysis, AnalysisStatus
 from app.schemas import AnalysisResponse
+from app.services.llm_resume_analyzer import ResumeAnalysisError, analyze_resume_with_llm
+from app.services.resume_parser import ResumeParseError, extract_resume_text
 
 router = APIRouter()
 
@@ -34,21 +36,27 @@ def trigger_analysis(
     db.flush()
     db.refresh(analysis)
 
-    mock_skills = ["Python", "JavaScript", "React", "SQL", "Git"]
-    mock_experience = 3.0
-    mock_education = "本科"
-    mock_directions = ["后端开发", "全栈开发"]
+    try:
+        resume_text = resume.parsed_content or extract_resume_text(resume.file_path, resume.file_type)
+        resume.parsed_content = resume_text
+        llm_result = analyze_resume_with_llm(resume_text)
+    except (ResumeParseError, ResumeAnalysisError) as exc:
+        analysis.status = AnalysisStatus.FAILED
+        analysis.analysis_result = {"error": str(exc)}
+        db.flush()
+        db.refresh(analysis)
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     analysis.analysis_result = {
-        "summary": "具有扎实的编程基础和实践经验",
-        "strengths": ["编程能力较强", "项目经验丰富"],
-        "weaknesses": ["缺乏大型项目经验"],
-        "detailed_analysis": "基于简历内容的综合分析结果",
+        "summary": llm_result["summary"],
+        "strengths": llm_result["strengths"],
+        "weaknesses": llm_result["weaknesses"],
+        "detailed_analysis": llm_result["detailed_analysis"],
     }
-    analysis.extracted_skills = mock_skills
-    analysis.experience_years = mock_experience
-    analysis.education_level = mock_education
-    analysis.recommended_directions = mock_directions
+    analysis.extracted_skills = llm_result["skills"]
+    analysis.experience_years = llm_result["experience_years"]
+    analysis.education_level = llm_result["education_level"]
+    analysis.recommended_directions = llm_result["recommended_directions"]
     analysis.status = AnalysisStatus.COMPLETED
     db.flush()
     db.refresh(analysis)

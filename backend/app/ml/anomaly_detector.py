@@ -10,11 +10,11 @@ from sklearn.svm import OneClassSVM
 
 from app.ml.data import MODEL_FEATURES, load_records
 
-
+#数据清洗
 def valid_records() -> list[dict[str, Any]]:
     return [r for r in load_records() if r["salary_mid"] > 0]
 
-
+#特征构造函数
 def rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     anomaly_features = MODEL_FEATURES + ["salary_mid", "salary_range"]
     result = []
@@ -25,11 +25,11 @@ def rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         result.append(row)
     return result
 
-
+#统一封装特征预处理流程
 def anomaly_pipeline(model: Any) -> Pipeline:
     return Pipeline([("vectorizer", DictVectorizer(sparse=False)), ("scaler", StandardScaler()), ("model", model)])
 
-
+#异常原因描述
 def describe_reason(record: dict[str, Any]) -> str:
     reasons = []
     if record["salary_mid"] > 80:
@@ -44,7 +44,7 @@ def describe_reason(record: dict[str, Any]) -> str:
         reasons.append("缺少技能标签")
     return "、".join(reasons) or "综合特征与多数岗位差异较大"
 
-
+#统一输出规范的异常结果结构
 def format_anomaly(record: dict[str, Any], score: float, method: str) -> dict[str, Any]:
     return {
         "id": record["id"],
@@ -58,7 +58,7 @@ def format_anomaly(record: dict[str, Any], score: float, method: str) -> dict[st
         "reason": describe_reason(record),
     }
 
-
+#简单统计异常检测
 def detect_statistical(records: list[dict[str, Any]], method: str, limit: int) -> list[dict[str, Any]]:
     values = np.array([r["salary_mid"] for r in records], dtype=float)
     if method == "zscore":
@@ -87,14 +87,18 @@ def detect_anomalies(method: str = "isolation_forest", contamination: float = 0.
         return {"items": detect_statistical(records, method, limit), "method": method, "sample_count": len(records)}
 
     x = rows(records)
+    #lof 局部离群因子
     if method == "lof":
         model = anomaly_pipeline(LocalOutlierFactor(contamination=contamination))
         labels = model.fit_predict(x)
         scores = -model.named_steps["model"].negative_outlier_factor_
+    #ocsvm 单类支持向量机
     elif method == "ocsvm":
         model = anomaly_pipeline(OneClassSVM(nu=contamination, gamma="scale"))
         labels = model.fit_predict(x)
         scores = -model.decision_function(x)
+
+    #isolation_forest 孤立森林
     else:
         method = "isolation_forest"
         model = anomaly_pipeline(IsolationForest(contamination=contamination, random_state=42, n_jobs=-1))

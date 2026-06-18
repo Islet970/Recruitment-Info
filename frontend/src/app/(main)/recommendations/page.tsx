@@ -5,11 +5,15 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import type { ResumeAnalysis, PositionBrief } from "@/types";
 import { MapPin, Star, FileText, ChevronRight } from "lucide-react";
+import PositionDetailModal from "@/components/PositionDetailModal";
+import CompanyDetailModal from "@/components/CompanyDetailModal";
 
 interface ResItem { id: number; file_name: string; file_type: string | null; upload_time: string; }
 
 export default function RecommendationsPage() {
   const [selectedAnalysisId, setSelectedAnalysisId] = useState<number | null>(null);
+  const [selectedPositionId, setSelectedPositionId] = useState<number | null>(null);
+  const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null);
 
   const { data: analyses } = useQuery<ResumeAnalysis[]>({
     queryKey: ["analysis-history"],
@@ -82,8 +86,9 @@ export default function RecommendationsPage() {
             {(recommendations || []).map((rec: any, i: number) => {
               const pos = rec.position || rec;
               return (
-                <div key={pos.id || i} className="p-5 rounded-xl border transition-all hover:-translate-y-0.5"
+                <div key={pos.id || i} className="p-5 rounded-xl border cursor-pointer transition-all hover:-translate-y-0.5"
                   style={{ background: "var(--color-surface)", borderColor: "var(--color-border)" }}
+                  onClick={() => setSelectedPositionId(pos.id)}
                   onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--color-primary)"; e.currentTarget.style.boxShadow = "0 4px 20px rgba(99,102,241,0.1)"; }}
                   onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--color-border)"; e.currentTarget.style.boxShadow = "none"; }}>
                   <div className="flex items-start justify-between gap-4">
@@ -144,6 +149,28 @@ export default function RecommendationsPage() {
             )}
           </div>
         )
+      )}
+
+      {selectedPositionId && (
+        <PositionDetailModal
+          positionId={selectedPositionId}
+          onClose={() => setSelectedPositionId(null)}
+          onCompanyClick={(companyId) => {
+            setSelectedPositionId(null);
+            setSelectedCompanyId(companyId);
+          }}
+        />
+      )}
+
+      {selectedCompanyId && (
+        <CompanyDetailModal
+          companyId={selectedCompanyId}
+          onClose={() => setSelectedCompanyId(null)}
+          onPositionClick={(positionId) => {
+            setSelectedCompanyId(null);
+            setSelectedPositionId(positionId);
+          }}
+        />
       )}
     </div>
   );
